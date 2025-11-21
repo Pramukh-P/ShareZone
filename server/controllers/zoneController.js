@@ -204,21 +204,26 @@ export const getZoneById = async (req, res) => {
     }
 
     const batchesWithFiles = batches.map((b) => ({
-      id: b._id,
-      uploaderUsername: b.uploaderUsername,
-      createdAt: b.createdAt,
-      message: b.message,
-      files: files
-        .filter((f) => String(f.batch) === String(b._id))
-        .map((f) => ({
-          id: f._id,
-          originalName: f.originalName,
-          storedName: f.storedName,
-          mimeType: f.mimeType,
-          sizeBytes: f.sizeBytes,
-          uploadedAt: f.uploadedAt,
-        })),
-    }));
+  id: b._id,
+  uploaderUsername: b.uploaderUsername,
+  createdAt: b.createdAt,
+  message: b.message,
+  files: files
+    .filter((f) => String(f.batch) === String(b._id))
+    .map((f) => ({
+      id: f._id,
+      originalName: f.originalName,
+      storedName: f.storedName,
+      mimeType: f.mimeType,
+      sizeBytes: f.sizeBytes,
+      uploadedAt: f.uploadedAt,
+
+      // 🔹 New fields: use Cloudinary URL directly on frontend
+      cloudinaryUrl: f.cloudinarySecureUrl || f.cloudinaryUrl,
+      cloudinaryResourceType: f.cloudinaryResourceType,
+    })),
+}));
+
 
     return res.json({
       id: zone._id,

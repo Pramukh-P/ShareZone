@@ -126,7 +126,6 @@ export default function ZonePage() {
   const [previewFile, setPreviewFile] = useState(null); // { id, originalName, mimeType, sizeBytes, url }
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState("");
-  const [previewObjectUrl, setPreviewObjectUrl] = useState(null);
 
   const maxSizeMb = 50;
   const allowedTypes = "PDF, images (JPG/PNG/GIF), MP4, DOCX, ZIP";
@@ -211,9 +210,7 @@ export default function ZonePage() {
       "zone_lock_state",
       ({ zoneId: changedZoneId, uploadsLocked, updatedBy }) => {
         if (changedZoneId !== zoneId) return;
-        setZoneInfo((prev) =>
-          prev ? { ...prev, uploadsLocked } : prev
-        );
+        setZoneInfo((prev) => (prev ? { ...prev, uploadsLocked } : prev));
         setUploadInfo(
           `Uploads ${uploadsLocked ? "locked" : "unlocked"} by ${updatedBy}`
         );
@@ -224,9 +221,7 @@ export default function ZonePage() {
       "zone_extended",
       ({ zoneId: changedZoneId, expiresAt, extendedBy, extraHours }) => {
         if (changedZoneId !== zoneId) return;
-        setZoneInfo((prev) =>
-          prev ? { ...prev, expiresAt } : prev
-        );
+        setZoneInfo((prev) => (prev ? { ...prev, expiresAt } : prev));
         setUploadInfo(
           `Zone extended by ${extraHours} hour${
             extraHours > 1 ? "s" : ""
@@ -567,60 +562,24 @@ export default function ZonePage() {
     setFilterSinceAmPm("am");
   };
 
-  // 👁️ Open preview: fetch as blob, create object URL
-  const openPreview = async (file) => {
+  // 👁️ Open preview using Cloudinary URL directly
+  const openPreview = (file) => {
     if (isExpired) return;
 
-    // clear previous object URL
-    if (previewObjectUrl) {
-      URL.revokeObjectURL(previewObjectUrl);
-      setPreviewObjectUrl(null);
-    }
-
     setPreviewError("");
-    setPreviewLoading(true);
-    // show modal immediately with metadata
+
+    const directUrl =
+      file.cloudinaryUrl ||
+      `${API_BASE}/api/zones/${zoneId}/files/${file.id}/download`;
+
+    setPreviewLoading(false);
     setPreviewFile({
       ...file,
-      url: null,
+      url: directUrl,
     });
-
-    try {
-      const url = `${API_BASE}/api/zones/${zoneId}/files/${file.id}/download`;
-      const res = await axios.get(url, {
-        responseType: "blob",
-      });
-
-      const blob = res.data;
-      const contentType =
-        res.headers["content-type"] ||
-        file.mimeType ||
-        "application/octet-stream";
-      const objectUrl = URL.createObjectURL(
-        new Blob([blob], { type: contentType })
-      );
-
-      setPreviewObjectUrl(objectUrl);
-      setPreviewFile({
-        ...file,
-        mimeType: contentType,
-        url: objectUrl,
-      });
-    } catch (err) {
-      console.error(err);
-      setPreviewError(
-        err.response?.data?.message || "Failed to load file preview."
-      );
-    } finally {
-      setPreviewLoading(false);
-    }
   };
 
   const closePreview = () => {
-    if (previewObjectUrl) {
-      URL.revokeObjectURL(previewObjectUrl);
-    }
-    setPreviewObjectUrl(null);
     setPreviewFile(null);
     setPreviewError("");
     setPreviewLoading(false);
@@ -693,8 +652,10 @@ export default function ZonePage() {
         <button
           type="button"
           onClick={() => {
-            const url = `${API_BASE}/api/zones/${zoneId}/files/${previewFile.id}/download`;
-            window.open(url, "_blank");
+            const directUrl =
+              previewFile.cloudinaryUrl ||
+              `${API_BASE}/api/zones/${zoneId}/files/${previewFile.id}/download`;
+            window.open(directUrl, "_blank");
           }}
           className="text-[11px] px-3 py-1.5 rounded-lg bg-sz-accent text-black font-medium hover:bg-sz-accent-soft transition"
         >
@@ -1210,8 +1171,10 @@ export default function ZonePage() {
                                         disabled={isExpired}
                                         onClick={() => {
                                           if (isExpired) return;
-                                          const url = `${API_BASE}/api/zones/${zoneId}/files/${file.id}/download`;
-                                          window.open(url, "_blank");
+                                          const directUrl =
+                                            file.cloudinaryUrl ||
+                                            `${API_BASE}/api/zones/${zoneId}/files/${file.id}/download`;
+                                          window.open(directUrl, "_blank");
                                         }}
                                         className={`text-[11px] px-3 py-1.5 rounded-lg border border-sz-border text-slate-100 ${
                                           isExpired
