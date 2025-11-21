@@ -1,12 +1,10 @@
-// client/src/config.js
-
 const isDev = import.meta.env.DEV;
 
-// In dev: use local backend
-// In production: same-origin API (/api) and same-origin socket
+// Development → local backend
+// Production → SAME domain (Render) with correct routes
 export const API_BASE = isDev
   ? "http://localhost:5000"
-  : "/api";
+  : ""; // <-- FIXED
 
 export const SOCKET_URL = isDev
   ? "http://localhost:5000"

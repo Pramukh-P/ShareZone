@@ -136,7 +136,7 @@ export default function ZonePage() {
   const fetchZone = async () => {
     try {
       setLoading(true);
-      const res = await axios.get(`${API_BASE}/api/zones/${zoneId}`, {
+      const res = await axios.get(`${API_BASE}/zones/${zoneId}`, {
         params: { username },
       });
       setZoneInfo(res.data);
@@ -334,7 +334,7 @@ export default function ZonePage() {
     try {
       setUploading(true);
       const res = await axios.post(
-        `${API_BASE}/api/zones/${zoneId}/upload`,
+        `${API_BASE}/zones/${zoneId}/upload`,
         formData,
         {
           headers: {
@@ -373,7 +373,7 @@ export default function ZonePage() {
     try {
       setLockUpdating(true);
       const res = await axios.patch(
-        `${API_BASE}/api/zones/${zoneId}/lock`,
+        `${API_BASE}/zones/${zoneId}/lock`,
         { uploadsLocked: newValue },
         {
           headers: {
@@ -409,7 +409,7 @@ export default function ZonePage() {
     try {
       setExtendLoading(true);
       const res = await axios.patch(
-        `${API_BASE}/api/zones/${zoneId}/extend`,
+        `${API_BASE}/zones/${zoneId}/extend`,
         { extraHours: extendHours },
         {
           headers: {
@@ -451,10 +451,9 @@ export default function ZonePage() {
 
     try {
       setKickLoadingUser(targetUsername);
-      // Backend route you need to implement:
       // POST /api/zones/:id/kick-user  { username: targetUsername }
       const res = await axios.post(
-        `${API_BASE}/api/zones/${zoneId}/kick-user`,
+        `${API_BASE}/zones/${zoneId}/kick-user`,
         { username: targetUsername },
         {
           headers: {
@@ -589,14 +588,16 @@ export default function ZonePage() {
     });
 
     try {
-      const url = `${API_BASE}/api/zones/${zoneId}/files/${file.id}/download`;
+      const url = `${API_BASE}/zones/${zoneId}/files/${file.id}/download`;
       const res = await axios.get(url, {
         responseType: "blob",
       });
 
       const blob = res.data;
       const contentType =
-        res.headers["content-type"] || file.mimeType || "application/octet-stream";
+        res.headers["content-type"] ||
+        file.mimeType ||
+        "application/octet-stream";
       const objectUrl = URL.createObjectURL(
         new Blob([blob], { type: contentType })
       );
@@ -635,7 +636,8 @@ export default function ZonePage() {
         <div className="max-w-xs w-full rounded-xl border border-sz-border bg-slate-950 p-4 text-sm text-slate-100 text-center">
           <p className="mb-1">Loading preview…</p>
           <p className="text-xs text-slate-500">
-            If this takes long for large files, you can close and use Download instead.
+            If this takes long for large files, you can close and use Download
+            instead.
           </p>
         </div>
       );
@@ -693,7 +695,7 @@ export default function ZonePage() {
         <button
           type="button"
           onClick={() => {
-            const url = `${API_BASE}/api/zones/${zoneId}/files/${previewFile.id}/download`;
+            const url = `${API_BASE}/zones/${zoneId}/files/${previewFile.id}/download`;
             window.open(url, "_blank");
           }}
           className="text-[11px] px-3 py-1.5 rounded-lg bg-sz-accent text-black font-medium hover:bg-sz-accent-soft transition"
@@ -801,8 +803,8 @@ export default function ZonePage() {
                       )}
                       {isExpired && (
                         <p className="mt-2 text-[11px] text-red-300">
-                          This zone has expired. Uploads are disabled and downloads
-                          may be blocked by the server.
+                          This zone has expired. Uploads are disabled and
+                          downloads may be blocked by the server.
                         </p>
                       )}
 
@@ -849,8 +851,8 @@ export default function ZonePage() {
 
                     {onlineUsers.length === 0 ? (
                       <p className="text-xs text-slate-400">
-                        You are the only user tracked in this session. When others join
-                        from their browsers, they will appear here.
+                        You are the only user tracked in this session. When
+                        others join from their browsers, they will appear here.
                       </p>
                     ) : (
                       <div className="flex flex-wrap gap-2">
@@ -878,7 +880,9 @@ export default function ZonePage() {
                                 disabled={kickLoadingUser === user}
                                 className="text-[10px] text-red-300 hover:text-red-200 disabled:opacity-60"
                               >
-                                {kickLoadingUser === user ? "Kicking..." : "Kick"}
+                                {kickLoadingUser === user
+                                  ? "Kicking..."
+                                  : "Kick"}
                               </button>
                             )}
                           </div>
@@ -951,7 +955,9 @@ export default function ZonePage() {
                           type="file"
                           multiple
                           onChange={handleFileChange}
-                          disabled={zoneInfo.uploadsLocked || uploading || isExpired}
+                          disabled={
+                            zoneInfo.uploadsLocked || uploading || isExpired
+                          }
                           className="block w-full text-xs text-slate-200 file:mr-3 file:rounded-lg file:border-0 file:bg-sz-accent file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-black hover:file:bg-sz-accent-soft disabled:opacity-60 disabled:cursor-not-allowed"
                         />
                         {selectedFiles.length > 0 && (
@@ -979,7 +985,9 @@ export default function ZonePage() {
                           onChange={(e) => setUploadMessage(e.target.value)}
                           placeholder="e.g. 'Slides for today's meeting' or 'Images for 6 PM section.'"
                           className="w-full rounded-lg bg-slate-950 border border-sz-border px-3 py-2 text-xs outline-none focus:border-sz-accent resize-none"
-                          disabled={zoneInfo.uploadsLocked || uploading || isExpired}
+                          disabled={
+                            zoneInfo.uploadsLocked || uploading || isExpired
+                          }
                         />
                       </div>
 
@@ -1204,7 +1212,7 @@ export default function ZonePage() {
                                         disabled={isExpired}
                                         onClick={() => {
                                           if (isExpired) return;
-                                          const url = `${API_BASE}/api/zones/${zoneId}/files/${file.id}/download`;
+                                          const url = `${API_BASE}/zones/${zoneId}/files/${file.id}/download`;
                                           window.open(url, "_blank");
                                         }}
                                         className={`text-[11px] px-3 py-1.5 rounded-lg border border-sz-border text-slate-100 ${

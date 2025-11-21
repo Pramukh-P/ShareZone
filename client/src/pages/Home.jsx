@@ -9,7 +9,6 @@ import { API_BASE } from "../config";
 const LIVE_ZONES_KEY = "sharezone_live_zones";
 const JOINED_ZONES_KEY = "sharezone_joined_zones";
 
-
 const initialCreateForm = {
   zoneName: "",
   password: "",
@@ -88,7 +87,7 @@ export default function Home() {
       expiredLive.forEach((zone) => {
         if (!zone.ownerToken) return;
         axios
-          .delete(`${API_BASE}/api/zones/${zone.id}`, {
+          .delete(`${API_BASE}/zones/${zone.id}`, {
             headers: { "x-owner-token": zone.ownerToken },
           })
           .catch(() => {
@@ -148,7 +147,7 @@ export default function Home() {
     setLoadingCreate(true);
 
     try {
-      const res = await axios.post(`${API_BASE}/api/zones`, {
+      const res = await axios.post(`${API_BASE}/zones`, {
         zoneName: createForm.zoneName,
         password: createForm.password,
         durationHours: createForm.durationHours,
@@ -198,7 +197,7 @@ export default function Home() {
     setLoadingJoin(true);
 
     try {
-      const res = await axios.post(`${API_BASE}/api/zones/join`, {
+      const res = await axios.post(`${API_BASE}/zones/join`, {
         zoneName: joinForm.zoneName,
         password: joinForm.password,
         username: joinForm.username,
@@ -258,7 +257,7 @@ export default function Home() {
     if (!window.confirm(`Delete zone "${zone.zoneName}" for everyone?`)) return;
 
     try {
-      await axios.delete(`${API_BASE}/api/zones/${zone.id}`, {
+      await axios.delete(`${API_BASE}/zones/${zone.id}`, {
         headers: {
           "x-owner-token": zone.ownerToken,
         },
@@ -679,9 +678,9 @@ export default function Home() {
       {/* Footer */}
       <footer className="border-t border-sz-border/80 bg-slate-950/80 mt-4">
         <div className="max-w-6xl mx-auto px-4 py-4 flex items-center justify-center text-[11px] sm:text-xs text-slate-500">
-            © {new Date().getFullYear()}{" "}
-            <span className="text-sz-accent font-medium"> ShareZone</span>. All
-            rights reserved.
+          © {new Date().getFullYear()}{" "}
+          <span className="text-sz-accent font-medium"> ShareZone</span>. All
+          rights reserved.
         </div>
       </footer>
     </div>
