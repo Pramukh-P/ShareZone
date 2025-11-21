@@ -123,8 +123,8 @@ export default function ZonePage() {
   const [kickLoadingUser, setKickLoadingUser] = useState(null);
 
   // 👁️ Preview modal state
-  const [previewFile, setPreviewFile] = useState(null); // { id, originalName, mimeType, sizeBytes, url }
-  const [previewLoading, setPreviewLoading] = useState(false);
+  // previewFile: { id, originalName, mimeType, sizeBytes, url }
+  const [previewFile, setPreviewFile] = useState(null);
   const [previewError, setPreviewError] = useState("");
 
   const maxSizeMb = 50;
@@ -236,13 +236,11 @@ export default function ZonePage() {
       if (!kickedUser) return;
 
       if (kickedUser === username) {
-        // You are kicked
         alert("You have been removed from this ShareZone by the owner.");
         s.emit("leave_zone", { zoneId, username });
         s.disconnect();
         navigate("/");
       } else {
-        // Someone else kicked, remove from list
         setOnlineUsers((prev) => prev.filter((u) => u !== kickedUser));
       }
     });
@@ -412,7 +410,6 @@ export default function ZonePage() {
         }
       );
 
-      // Server should enforce: createdAt → max 10h total
       setZoneInfo((prev) =>
         prev ? { ...prev, expiresAt: res.data.expiresAt } : prev
       );
@@ -460,7 +457,6 @@ export default function ZonePage() {
           `User "${targetUsername}" has been removed from this ShareZone.`
       );
 
-      // Optimistic removal from local list
       setOnlineUsers((prev) => prev.filter((u) => u !== targetUsername));
     } catch (err) {
       console.error(err);
@@ -562,17 +558,13 @@ export default function ZonePage() {
     setFilterSinceAmPm("am");
   };
 
-  // 👁️ Open preview using Cloudinary URL directly
+  // 👁️ Open preview: just point to the backend download URL (which redirects to Cloudinary)
   const openPreview = (file) => {
     if (isExpired) return;
 
     setPreviewError("");
+    const directUrl = `${API_BASE}/api/zones/${zoneId}/files/${file.id}/download`;
 
-    const directUrl =
-      file.cloudinaryUrl ||
-      `${API_BASE}/api/zones/${zoneId}/files/${file.id}/download`;
-
-    setPreviewLoading(false);
     setPreviewFile({
       ...file,
       url: directUrl,
@@ -582,23 +574,10 @@ export default function ZonePage() {
   const closePreview = () => {
     setPreviewFile(null);
     setPreviewError("");
-    setPreviewLoading(false);
   };
 
   const renderPreviewContent = () => {
     if (!previewFile) return null;
-
-    if (previewLoading || !previewFile.url) {
-      return (
-        <div className="max-w-xs w-full rounded-xl border border-sz-border bg-slate-950 p-4 text-sm text-slate-100 text-center">
-          <p className="mb-1">Loading preview…</p>
-          <p className="text-xs text-slate-500">
-            If this takes long for large files, you can close and use Download
-            instead.
-          </p>
-        </div>
-      );
-    }
 
     if (previewError) {
       return (
@@ -611,10 +590,13 @@ export default function ZonePage() {
     const mime = previewFile.mimeType || "";
     const type = fileTypeLabel(mime);
 
+    // For all types we use the server /download URL (which 302s to Cloudinary)
+    const src = previewFile.url;
+
     if (type === "image") {
       return (
         <img
-          src={previewFile.url}
+          src={src}
           alt={previewFile.originalName}
           className="max-h-[80vh] max-w-[90vw] object-contain rounded-xl border border-sz-border"
         />
@@ -624,7 +606,7 @@ export default function ZonePage() {
     if (type === "video") {
       return (
         <video
-          src={previewFile.url}
+          src={src}
           controls
           className="max-h-[70vh] max-w-[90vw] rounded-xl border border-sz-border bg-black"
         />
@@ -634,7 +616,7 @@ export default function ZonePage() {
     if (type === "pdf") {
       return (
         <iframe
-          src={previewFile.url}
+          src={src}
           title={previewFile.originalName}
           className="w-[90vw] h-[80vh] rounded-xl border border-sz-border bg-slate-950"
         />
@@ -652,10 +634,8 @@ export default function ZonePage() {
         <button
           type="button"
           onClick={() => {
-            const directUrl =
-              previewFile.cloudinaryUrl ||
-              `${API_BASE}/api/zones/${zoneId}/files/${previewFile.id}/download`;
-            window.open(directUrl, "_blank");
+            const url = `${API_BASE}/api/zones/${zoneId}/files/${previewFile.id}/download`;
+            window.open(url, "_blank");
           }}
           className="text-[11px] px-3 py-1.5 rounded-lg bg-sz-accent text-black font-medium hover:bg-sz-accent-soft transition"
         >
@@ -1171,10 +1151,8 @@ export default function ZonePage() {
                                         disabled={isExpired}
                                         onClick={() => {
                                           if (isExpired) return;
-                                          const directUrl =
-                                            file.cloudinaryUrl ||
-                                            `${API_BASE}/api/zones/${zoneId}/files/${file.id}/download`;
-                                          window.open(directUrl, "_blank");
+                                          const url = `${API_BASE}/api/zones/${zoneId}/files/${file.id}/download`;
+                                          window.open(url, "_blank");
                                         }}
                                         className={`text-[11px] px-3 py-1.5 rounded-lg border border-sz-border text-slate-100 ${
                                           isExpired
