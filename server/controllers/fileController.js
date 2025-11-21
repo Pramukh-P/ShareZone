@@ -1,13 +1,18 @@
+// controllers/fileController.js
 import fs from "fs";
+import fsPromises from "fs/promises";
 import multer from "multer";
 import path from "path";
 import { fileURLToPath } from "url";
+import { v2 as cloudinary } from "cloudinary";
+
 import { Zone } from "../models/Zone.js";
 import { UploadBatch } from "../models/UploadBatch.js";
 import { File } from "../models/File.js";
 
 const MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024; // 50 MB
 
+// Allowed mime types: PDF, images, MP4, DOCX, ZIP
 const ALLOWED_MIME_TYPES = [
   "application/pdf",
   "image/jpeg",
@@ -19,9 +24,27 @@ const ALLOWED_MIME_TYPES = [
   "application/x-zip-compressed",
 ];
 
+// ---------- Path helpers ----------
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Create a temp folder for Multer (ephemeral on Render, which is fine)
+const TEMP_UPLOAD_DIR = path.join(__dirname, "..", "uploads_temp");
+if (!fs.existsSync(TEMP_UPLOAD_DIR)) {
+  fs.mkdirSync(TEMP_UPLOAD_DIR, { recursive: true });
+}
+
+// ---------- Cloudinary config ----------
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
+
+// ---------- Multer setup ----------
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    cb(null, "uploads");
+    cb(null, TEMP_UPLOAD_DIR);
   },
   filename: (req, file, cb) => {
     const unique = Date.now() + "-" + Math.round(Math.random() * 1e9);
@@ -54,6 +77,7 @@ const isZoneExpired = (zone) => {
   return zone.expiresAt < new Date();
 };
 
+// ---------- POST /api/zones/:id/upload ----------
 export const handleUploadFiles = async (req, res) => {
   try {
     const zoneId = req.params.id;
@@ -82,29 +106,57 @@ export const handleUploadFiles = async (req, res) => {
     }
 
     if (zone.uploadsLocked) {
-      return res.status(403).json({ message: "Uploads are locked in this zone" });
+      return res
+        .status(403)
+        .json({ message: "Uploads are locked in this zone" });
     }
 
+    // Create one upload batch for this request
     const batch = await UploadBatch.create({
       zone: zone._id,
       uploaderUsername: username,
       message: message && message.trim() ? message.trim() : undefined,
     });
 
-    const fileDocs = await Promise.all(
-      files.map((f) =>
-        File.create({
-          zone: zone._id,
-          batch: batch._id,
-          originalName: f.originalname,
-          storedName: f.filename,
-          mimeType: f.mimetype,
-          sizeBytes: f.size,
-          uploadedBy: username,
-        })
-      )
-    );
+    const fileDocs = [];
 
+    for (const f of files) {
+      // Upload to Cloudinary from the temp file path.
+      // resource_type: "auto" so Cloudinary decides (image, video, raw)
+      const result = await cloudinary.uploader.upload(f.path, {
+        folder: `sharezone/${zone._id}`,
+        resource_type: "auto",
+      });
+
+      // Create DB record pointing to Cloudinary
+      const fileDoc = await File.create({
+        zone: zone._id,
+        batch: batch._id,
+        originalName: f.originalname,
+        storedName: f.filename, // not used for serving anymore, just leftover
+        mimeType: f.mimetype,
+        sizeBytes: f.size,
+        uploadedBy: username,
+        cloudinaryPublicId: result.public_id,
+        cloudinaryUrl: result.secure_url || result.url,
+        cloudinarySecureUrl: result.secure_url || result.url,
+        cloudinaryResourceType: result.resource_type || "raw",
+      });
+
+      fileDocs.push(fileDoc);
+
+      // Clean up temp file
+      try {
+        await fsPromises.unlink(f.path);
+      } catch (err) {
+        // Non-fatal
+        if (err.code !== "ENOENT") {
+          console.error("Failed to remove temp file:", f.path, err.message);
+        }
+      }
+    }
+
+    // Build batch payload for clients
     const batchPayload = {
       id: batch._id,
       zoneId: zone._id,
@@ -121,8 +173,11 @@ export const handleUploadFiles = async (req, res) => {
       })),
     };
 
+    // 🔔 Broadcast to all sockets in this zone
     if (globalThis.io) {
-      globalThis.io.to(`zone:${zone._id}`).emit("zone_upload_batch", batchPayload);
+      globalThis.io
+        .to(`zone:${zone._id}`)
+        .emit("zone_upload_batch", batchPayload);
     }
 
     return res.status(201).json({
@@ -138,9 +193,7 @@ export const handleUploadFiles = async (req, res) => {
   }
 };
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
+// ---------- GET /api/zones/:zoneId/files/:fileId/download ----------
 export const handleDownloadFile = async (req, res) => {
   try {
     const { zoneId, fileId } = req.params;
@@ -159,11 +212,18 @@ export const handleDownloadFile = async (req, res) => {
       return res.status(404).json({ message: "File not found in this zone" });
     }
 
-    const uploadsDir = path.join(__dirname, "..", "uploads");
-    const filePath = path.join(uploadsDir, fileDoc.storedName);
+    // ✅ New: redirect to Cloudinary URL (browser will download/preview)
+    if (fileDoc.cloudinarySecureUrl) {
+      return res.redirect(fileDoc.cloudinarySecureUrl);
+    }
 
+    // Fallback: if any old record without Cloudinary info remains
+    const localUploadsDir = path.join(__dirname, "..", "uploads");
+    const filePath = path.join(localUploadsDir, fileDoc.storedName || "");
     if (!fs.existsSync(filePath)) {
-      return res.status(404).json({ message: "File no longer exists on server" });
+      return res
+        .status(404)
+        .json({ message: "File no longer exists on server" });
     }
 
     return res.download(filePath, fileDoc.originalName);
