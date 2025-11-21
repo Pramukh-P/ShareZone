@@ -75,6 +75,21 @@ export default function Home() {
 
   const navigate = useNavigate();
 
+  // Utility: split zones into [notExpired, expired]
+  function splitByExpiry(zones, nowMs) {
+    const notExpired = [];
+    const expired = [];
+    zones.forEach((z) => {
+      const expMs = new Date(z.expiresAt).getTime();
+      if (!isNaN(expMs) && expMs < nowMs) {
+        expired.push(z);
+      } else {
+        notExpired.push(z);
+      }
+    });
+    return [notExpired, expired];
+  }
+
   // On mount: load zones from localStorage and clean obvious expired ones
   useEffect(() => {
     const now = Date.now();
@@ -87,7 +102,7 @@ export default function Home() {
       expiredLive.forEach((zone) => {
         if (!zone.ownerToken) return;
         axios
-          .delete(`${API_BASE}/zones/${zone.id}`, {
+          .delete(`${API_BASE}/api/zones/${zone.id}`, {
             headers: { "x-owner-token": zone.ownerToken },
           })
           .catch(() => {
@@ -107,21 +122,6 @@ export default function Home() {
     }
     setJoinedZones(stillJoined);
   }, []);
-
-  // Utility: split zones into [notExpired, expired]
-  function splitByExpiry(zones, nowMs) {
-    const notExpired = [];
-    const expired = [];
-    zones.forEach((z) => {
-      const expMs = new Date(z.expiresAt).getTime();
-      if (!isNaN(expMs) && expMs < nowMs) {
-        expired.push(z);
-      } else {
-        notExpired.push(z);
-      }
-    });
-    return [notExpired, expired];
-  }
 
   const handleCreateChange = (e) => {
     const { name, value } = e.target;
@@ -147,7 +147,7 @@ export default function Home() {
     setLoadingCreate(true);
 
     try {
-      const res = await axios.post(`${API_BASE}/zones`, {
+      const res = await axios.post(`${API_BASE}/api/zones`, {
         zoneName: createForm.zoneName,
         password: createForm.password,
         durationHours: createForm.durationHours,
@@ -197,7 +197,7 @@ export default function Home() {
     setLoadingJoin(true);
 
     try {
-      const res = await axios.post(`${API_BASE}/zones/join`, {
+      const res = await axios.post(`${API_BASE}/api/zones/join`, {
         zoneName: joinForm.zoneName,
         password: joinForm.password,
         username: joinForm.username,
@@ -257,7 +257,7 @@ export default function Home() {
     if (!window.confirm(`Delete zone "${zone.zoneName}" for everyone?`)) return;
 
     try {
-      await axios.delete(`${API_BASE}/zones/${zone.id}`, {
+      await axios.delete(`${API_BASE}/api/zones/${zone.id}`, {
         headers: {
           "x-owner-token": zone.ownerToken,
         },

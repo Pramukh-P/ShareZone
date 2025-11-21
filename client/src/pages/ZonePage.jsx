@@ -136,7 +136,7 @@ export default function ZonePage() {
   const fetchZone = async () => {
     try {
       setLoading(true);
-      const res = await axios.get(`${API_BASE}/zones/${zoneId}`, {
+      const res = await axios.get(`${API_BASE}/api/zones/${zoneId}`, {
         params: { username },
       });
       setZoneInfo(res.data);
@@ -235,8 +235,7 @@ export default function ZonePage() {
       }
     );
 
-    // 🛑 User kicked event (backend should emit this)
-    // Expected payload: { zoneId: string, username: string }
+    // 🛑 User kicked event
     s.on("user_kicked", ({ zoneId: changedZoneId, username: kickedUser }) => {
       if (changedZoneId && String(changedZoneId) !== String(zoneId)) return;
       if (!kickedUser) return;
@@ -334,7 +333,7 @@ export default function ZonePage() {
     try {
       setUploading(true);
       const res = await axios.post(
-        `${API_BASE}/zones/${zoneId}/upload`,
+        `${API_BASE}/api/zones/${zoneId}/upload`,
         formData,
         {
           headers: {
@@ -373,7 +372,7 @@ export default function ZonePage() {
     try {
       setLockUpdating(true);
       const res = await axios.patch(
-        `${API_BASE}/zones/${zoneId}/lock`,
+        `${API_BASE}/api/zones/${zoneId}/lock`,
         { uploadsLocked: newValue },
         {
           headers: {
@@ -409,7 +408,7 @@ export default function ZonePage() {
     try {
       setExtendLoading(true);
       const res = await axios.patch(
-        `${API_BASE}/zones/${zoneId}/extend`,
+        `${API_BASE}/api/zones/${zoneId}/extend`,
         { extraHours: extendHours },
         {
           headers: {
@@ -451,9 +450,8 @@ export default function ZonePage() {
 
     try {
       setKickLoadingUser(targetUsername);
-      // POST /api/zones/:id/kick-user  { username: targetUsername }
       const res = await axios.post(
-        `${API_BASE}/zones/${zoneId}/kick-user`,
+        `${API_BASE}/api/zones/${zoneId}/kick-user`,
         { username: targetUsername },
         {
           headers: {
@@ -588,7 +586,7 @@ export default function ZonePage() {
     });
 
     try {
-      const url = `${API_BASE}/zones/${zoneId}/files/${file.id}/download`;
+      const url = `${API_BASE}/api/zones/${zoneId}/files/${file.id}/download`;
       const res = await axios.get(url, {
         responseType: "blob",
       });
@@ -695,7 +693,7 @@ export default function ZonePage() {
         <button
           type="button"
           onClick={() => {
-            const url = `${API_BASE}/zones/${zoneId}/files/${previewFile.id}/download`;
+            const url = `${API_BASE}/api/zones/${zoneId}/files/${previewFile.id}/download`;
             window.open(url, "_blank");
           }}
           className="text-[11px] px-3 py-1.5 rounded-lg bg-sz-accent text-black font-medium hover:bg-sz-accent-soft transition"
@@ -1212,7 +1210,7 @@ export default function ZonePage() {
                                         disabled={isExpired}
                                         onClick={() => {
                                           if (isExpired) return;
-                                          const url = `${API_BASE}/zones/${zoneId}/files/${file.id}/download`;
+                                          const url = `${API_BASE}/api/zones/${zoneId}/files/${file.id}/download`;
                                           window.open(url, "_blank");
                                         }}
                                         className={`text-[11px] px-3 py-1.5 rounded-lg border border-sz-border text-slate-100 ${
