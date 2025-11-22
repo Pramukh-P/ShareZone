@@ -1,6 +1,6 @@
 // src/pages/Home.jsx
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import axios from "axios";
 import logo from "../assets/ShareZone-Logo1.png";
 
@@ -74,6 +74,8 @@ export default function Home() {
   const [info, setInfo] = useState("");
 
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();   // 👈 NEW
+
 
   // Utility: split zones into [notExpired, expired]
   function splitByExpiry(zones, nowMs) {
@@ -121,6 +123,18 @@ export default function Home() {
       saveJoinedZones(stillJoined);
     }
     setJoinedZones(stillJoined);
+
+    // 👇 NEW: auto-fill Join form from shared link
+    const sharedZoneName = searchParams.get("zone");
+    if (sharedZoneName) {
+      setJoinForm((prev) => ({
+        ...prev,
+        zoneName: sharedZoneName,
+      }));
+      setInfo(
+        `Joining shared zone "${sharedZoneName}". Enter password and your username to continue.`
+      );
+    }
   }, []);
 
   const handleCreateChange = (e) => {
@@ -313,7 +327,7 @@ export default function Home() {
           </div>
 
           {/* Right side: About & Privacy buttons */}
-          <div className="hidden sm:flex items-center gap-2 text-xs">
+          <div className="flex items-center gap-2 text-[11px] sm:text-xs">
             <button
               type="button"
               onClick={() => navigate("/about")}

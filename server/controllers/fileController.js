@@ -12,14 +12,20 @@ import { File } from "../models/File.js";
 
 const MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024; // 50 MB
 
-// Allowed mime types: PDF, images, MP4, DOCX, ZIP
+// Allowed mime types
 const ALLOWED_MIME_TYPES = [
   "application/pdf",
+
   "image/jpeg",
   "image/png",
   "image/gif",
+
   "video/mp4",
+
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document", // docx
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",        // xlsx
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation",// pptx
+
   "application/zip",
   "application/x-zip-compressed",
 ];
@@ -40,6 +46,15 @@ cloudinary.config({
   api_key: process.env.CLOUDINARY_API_KEY,
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
+
+// Decide which Cloudinary resource_type to use
+function getCloudinaryResourceType(mime) {
+  if (!mime) return "raw";
+  if (mime.startsWith("image/")) return "image";
+  if (mime.startsWith("video/")) return "video";
+  // pdf, docx, xlsx, pptx, zip, etc.
+  return "raw";
+}
 
 // ---------- Multer setup ----------
 const storage = multer.diskStorage({
@@ -121,11 +136,15 @@ export const handleUploadFiles = async (req, res) => {
     const fileDocs = [];
 
     for (const f of files) {
+      const resourceType = getCloudinaryResourceType(f.mimetype);
+
       // Upload to Cloudinary from the temp file path.
-      // resource_type: "auto" so Cloudinary decides (image, video, raw)
       const result = await cloudinary.uploader.upload(f.path, {
         folder: `sharezone/${zone._id}`,
-        resource_type: "auto",
+        resource_type: resourceType,
+        // keep original extension
+        use_filename: false,
+        unique_filename: true,
       });
 
       // Create DB record pointing to Cloudinary
@@ -133,14 +152,14 @@ export const handleUploadFiles = async (req, res) => {
         zone: zone._id,
         batch: batch._id,
         originalName: f.originalname,
-        storedName: f.filename, // not used for serving anymore, just leftover
+        storedName: f.filename, // legacy, not used for serving anymore
         mimeType: f.mimetype,
         sizeBytes: f.size,
         uploadedBy: username,
         cloudinaryPublicId: result.public_id,
         cloudinaryUrl: result.secure_url || result.url,
         cloudinarySecureUrl: result.secure_url || result.url,
-        cloudinaryResourceType: result.resource_type || "raw",
+        cloudinaryResourceType: result.resource_type || resourceType,
       });
 
       fileDocs.push(fileDoc);
@@ -149,7 +168,6 @@ export const handleUploadFiles = async (req, res) => {
       try {
         await fsPromises.unlink(f.path);
       } catch (err) {
-        // Non-fatal
         if (err.code !== "ENOENT") {
           console.error("Failed to remove temp file:", f.path, err.message);
         }
@@ -175,9 +193,7 @@ export const handleUploadFiles = async (req, res) => {
 
     // 🔔 Broadcast to all sockets in this zone
     if (globalThis.io) {
-      globalThis.io
-        .to(`zone:${zone._id}`)
-        .emit("zone_upload_batch", batchPayload);
+      globalThis.io.to(`zone:${zone._id}`).emit("zone_upload_batch", batchPayload);
     }
 
     return res.status(201).json({
@@ -197,6 +213,7 @@ export const handleUploadFiles = async (req, res) => {
 export const handleDownloadFile = async (req, res) => {
   try {
     const { zoneId, fileId } = req.params;
+    const { mode } = req.query; // mode=inline for preview, else attachment
 
     const zone = await Zone.findById(zoneId);
     if (!zone || zone.isDeleted) {
@@ -212,12 +229,35 @@ export const handleDownloadFile = async (req, res) => {
       return res.status(404).json({ message: "File not found in this zone" });
     }
 
-    // ✅ New: redirect to Cloudinary URL (browser will download/preview)
-    if (fileDoc.cloudinarySecureUrl) {
-      return res.redirect(fileDoc.cloudinarySecureUrl);
+    // If we have Cloudinary info, use that
+    if (fileDoc.cloudinaryPublicId) {
+      const resourceType = fileDoc.cloudinaryResourceType || "raw";
+
+      // For preview (mode=inline) we don't force attachment
+      const urlOptions =
+        mode === "inline"
+          ? {
+              resource_type: resourceType,
+              type: "upload",
+              secure: true,
+            }
+          : {
+              resource_type: resourceType,
+              type: "upload",
+              secure: true,
+              flags: "attachment",
+              filename_override: fileDoc.originalName,
+            };
+
+      const downloadUrl = cloudinary.url(
+        fileDoc.cloudinaryPublicId,
+        urlOptions
+      );
+
+      return res.redirect(downloadUrl);
     }
 
-    // Fallback: if any old record without Cloudinary info remains
+    // Fallback: legacy local file (very unlikely now)
     const localUploadsDir = path.join(__dirname, "..", "uploads");
     const filePath = path.join(localUploadsDir, fileDoc.storedName || "");
     if (!fs.existsSync(filePath)) {
