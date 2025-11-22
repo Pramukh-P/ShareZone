@@ -4,6 +4,7 @@ import fsPromises from "fs/promises";
 import multer from "multer";
 import path from "path";
 import { fileURLToPath } from "url";
+import https from "https";              // ✅ IMPORTANT: needed for https.get
 import { v2 as cloudinary } from "cloudinary";
 
 import { Zone } from "../models/Zone.js";
@@ -20,7 +21,7 @@ const ALLOWED_MIME_TYPES = [
   "image/gif",
   "video/mp4",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document", // docx
-  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", // xlsx
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",       // xlsx
   "application/vnd.openxmlformats-officedocument.presentationml.presentation", // pptx
   "application/zip",
   "application/x-zip-compressed",
@@ -177,7 +178,9 @@ export const handleUploadFiles = async (req, res) => {
 
     // 🔔 Broadcast to all sockets in this zone
     if (globalThis.io) {
-      globalThis.io.to(`zone:${zone._id}`).emit("zone_upload_batch", batchPayload);
+      globalThis.io
+        .to(`zone:${zone._id}`)
+        .emit("zone_upload_batch", batchPayload);
     }
 
     return res.status(201).json({
@@ -209,9 +212,9 @@ export const handleDownloadFile = async (req, res) => {
 
     // Zone expiry check
     if (zone.expiresAt && zone.expiresAt.getTime() <= Date.now()) {
-      return res
-        .status(410)
-        .json({ message: "Zone has expired. Files are no longer available." });
+      return res.status(410).json({
+        message: "Zone has expired. Files are no longer available.",
+      });
     }
 
     const fileDoc = await File.findOne({ _id: fileId, zone: zone._id });
@@ -233,7 +236,7 @@ export const handleDownloadFile = async (req, res) => {
     // Use the original file name for the download
     const originalName =
       (fileDoc.originalName && fileDoc.originalName.toString()) || "file";
-    // very small sanitization: no newlines or quotes inside header
+    // small sanitization: remove newlines / quotes from header
     const safeName = originalName.replace(/[\r\n"]/g, "");
 
     res.setHeader(
@@ -255,13 +258,10 @@ export const handleDownloadFile = async (req, res) => {
             upstreamRes.statusCode,
             upstreamRes.statusMessage
           );
-          // 404 from Cloudinary → 404 for client; otherwise 502 gateway error
           if (!res.headersSent) {
-            res.sendStatus(
-              upstreamRes.statusCode === 404 ? 404 : 502
-            );
+            res.sendStatus(upstreamRes.statusCode === 404 ? 404 : 502);
           }
-          upstreamRes.resume();
+          upstreamRes.resume(); // drain and discard
           return;
         }
 
