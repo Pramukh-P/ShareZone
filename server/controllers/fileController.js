@@ -4,8 +4,8 @@ import fsPromises from "fs/promises";
 import multer from "multer";
 import path from "path";
 import { fileURLToPath } from "url";
+import https from "https";
 import { v2 as cloudinary } from "cloudinary";
-import axios from "axios";
 
 import { Zone } from "../models/Zone.js";
 import { UploadBatch } from "../models/UploadBatch.js";
@@ -211,43 +211,73 @@ export const handleDownloadFile = async (req, res) => {
       return res.status(500).json({ message: "File storage URL is missing" });
     }
 
-    // Fetch from Cloudinary as a stream
-    const cloudRes = await axios.get(secureUrl, {
-      responseType: "stream",
-    });
+    const urlObj = new URL(secureUrl);
 
-    const contentType =
-      cloudRes.headers["content-type"] ||
-      fileDoc.mimeType ||
-      "application/octet-stream";
+    const options = {
+      method: "GET",
+      hostname: urlObj.hostname,
+      path: urlObj.pathname + urlObj.search,
+    };
 
-    res.setHeader("Content-Type", contentType);
-
-    if (mode !== "inline") {
-      // Force download with original filename
-      const safeName = (fileDoc.originalName || "download")
-        .replace(/[/\\]/g, "_")
-        .replace(/[\r\n"]/g, "");
-
-      // Set both standard and RFC 5987 filename*
-      const encoded = encodeURIComponent(safeName);
-      res.setHeader(
-        "Content-Disposition",
-        `attachment; filename="${safeName}"; filename*=UTF-8''${encoded}`
-      );
-    }
-
-    // Pipe Cloudinary stream to the client
-    cloudRes.data.on("error", (err) => {
-      console.error("Stream error from Cloudinary:", err);
-      if (!res.headersSent) {
-        res.status(500).end("Error streaming file");
-      } else {
-        res.end();
+    const requestToCloudinary = https.request(options, (cloudRes) => {
+      if (cloudRes.statusCode && cloudRes.statusCode >= 400) {
+        console.error(
+          "Cloudinary HTTP error:",
+          cloudRes.statusCode,
+          secureUrl
+        );
+        cloudRes.resume(); // discard data
+        if (!res.headersSent) {
+          return res
+            .status(502)
+            .json({ message: "Failed to fetch file from storage" });
+        }
+        return res.end();
       }
+
+      const contentType =
+        cloudRes.headers["content-type"] ||
+        fileDoc.mimeType ||
+        "application/octet-stream";
+
+      res.setHeader("Content-Type", contentType);
+
+      if (mode !== "inline") {
+        // Force download with original filename
+        const safeName = (fileDoc.originalName || "download")
+          .replace(/[/\\]/g, "_")
+          .replace(/[\r\n"]/g, "");
+
+        const encoded = encodeURIComponent(safeName);
+        res.setHeader(
+          "Content-Disposition",
+          `attachment; filename="${safeName}"; filename*=UTF-8''${encoded}`
+        );
+      }
+
+      cloudRes.on("error", (err) => {
+        console.error("Stream error from Cloudinary:", err);
+        if (!res.headersSent) {
+          res.status(500).end("Error streaming file");
+        } else {
+          res.end();
+        }
+      });
+
+      cloudRes.pipe(res);
     });
 
-    cloudRes.data.pipe(res);
+    requestToCloudinary.on("error", (err) => {
+      console.error("HTTPS request to Cloudinary failed:", err);
+      if (!res.headersSent) {
+        return res
+          .status(502)
+          .json({ message: "Failed to communicate with file storage" });
+      }
+      res.end();
+    });
+
+    requestToCloudinary.end();
   } catch (err) {
     console.error("handleDownloadFile error:", err);
     if (!res.headersSent) {
