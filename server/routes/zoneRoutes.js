@@ -38,7 +38,7 @@ router.post("/:id/upload", (req, res) => {
 });
 
 // GET /api/zones/:zoneId/files/:fileId/download  -> download file
-router.get("/:zoneId/files/:fileId/download", handleDownloadFile);
+router.get("/:zoneId/files/:fileId/download", downloadFile );
 
 // GET /api/zones/:id/chat  -> chat history for this zone
 router.get("/:id/chat", getZoneChat);

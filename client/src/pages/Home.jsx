@@ -691,7 +691,7 @@ export default function Home() {
 
       {/* Footer */}
       <footer className="border-t border-sz-border/80 bg-slate-950/80 mt-4">
-        <div className="max-w-6xl mx-auto px-4 py-4 flex items-center justify-center text-[11px] sm:text-xs text-slate-500">
+        <div className="max-w-6xl mx-auto px-4 py-10 flex items-center justify-center text-[11px] sm:text-xs text-slate-500">
           © {new Date().getFullYear()}{" "}
           <span className="text-sz-accent font-medium"> ShareZone</span>. All
           rights reserved.

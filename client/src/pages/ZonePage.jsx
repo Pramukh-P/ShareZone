@@ -126,12 +126,9 @@ export default function ZonePage() {
 
   // 👁️ Preview modal state
   const [previewFile, setPreviewFile] = useState(null); // { id, originalName, mimeType, sizeBytes, url }
-  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewLoading, setPreviewLoading] = useState(false); // kept for future, not heavily used now
   const [previewError, setPreviewError] = useState("");
-  const [previewObjectUrl, setPreviewObjectUrl] = useState(null);
-
-  // Share link copied state
-  const [copiedLink, setCopiedLink] = useState(false);
+  const [previewObjectUrl, setPreviewObjectUrl] = useState(null); // kept in case you later re-add blob previews
 
   const maxSizeMb = 50;
   const allowedTypes = "PDF, images (JPG/PNG/GIF), MP4, DOCX, XLSX, PPTX, ZIP";
@@ -242,13 +239,11 @@ export default function ZonePage() {
       if (!kickedUser) return;
 
       if (kickedUser === username) {
-        // You are kicked
         alert("You have been removed from this ShareZone by the owner.");
         s.emit("leave_zone", { zoneId, username });
         s.disconnect();
         navigate("/");
       } else {
-        // Someone else kicked, remove from list
         setOnlineUsers((prev) => prev.filter((u) => u !== kickedUser));
       }
     });
@@ -265,7 +260,7 @@ export default function ZonePage() {
       setSocket(null);
       setOnlineUsers([]);
     };
-  }, [zoneId, username, navigate]);
+  }, [zoneId, username, navigate, SOCKET_URL]);
 
   const handleBackHome = () => {
     navigate("/");
@@ -316,7 +311,9 @@ export default function ZonePage() {
       return;
     }
 
-    const tooBig = selectedFiles.some((f) => f.size > maxSizeMb * 1024 * 1024);
+    const tooBig = selectedFiles.some(
+      (f) => f.size > maxSizeMb * 1024 * 1024
+    );
     if (tooBig) {
       setUploadError(`Each file must be <= ${maxSizeMb} MB.`);
       return;
@@ -418,6 +415,7 @@ export default function ZonePage() {
         }
       );
 
+      // Server enforces: createdAt → max 10h total
       setZoneInfo((prev) =>
         prev ? { ...prev, expiresAt: res.data.expiresAt } : prev
       );
@@ -475,25 +473,6 @@ export default function ZonePage() {
       );
     } finally {
       setKickLoadingUser(null);
-    }
-  };
-
-  // 🔗 Share link
-  const joinLink = useMemo(() => {
-    if (!zoneInfo) return "";
-    const origin = window.location.origin;
-    return `${origin}/?zone=${encodeURIComponent(zoneInfo.zoneName)}`;
-  }, [zoneInfo]);
-
-  const handleCopyJoinLink = async () => {
-    if (!joinLink) return;
-    try {
-      await navigator.clipboard.writeText(joinLink);
-      setCopiedLink(true);
-      setTimeout(() => setCopiedLink(false), 2000);
-    } catch (err) {
-      console.error("Failed to copy link:", err);
-      alert("Could not copy link. Please copy it manually:\n" + joinLink);
     }
   };
 
@@ -586,53 +565,25 @@ export default function ZonePage() {
     setFilterSinceAmPm("am");
   };
 
-  // 👁️ Open preview: fetch as blob, create object URL
-  const openPreview = async (file) => {
+  // 👁️ Open preview: just point iframe to our inline URL
+  const openPreview = (file) => {
     if (isExpired) return;
 
-    // clear previous object URL
+    // clear previous object URL (if any)
     if (previewObjectUrl) {
       URL.revokeObjectURL(previewObjectUrl);
       setPreviewObjectUrl(null);
     }
 
     setPreviewError("");
-    setPreviewLoading(true);
-    // show modal immediately with metadata
+    setPreviewLoading(false);
+
+    const inlineUrl = `${API_BASE}/api/zones/${zoneId}/files/${file.id}/download?mode=inline`;
+
     setPreviewFile({
       ...file,
-      url: null,
+      url: inlineUrl,
     });
-
-    try {
-      const url = `${API_BASE}/api/zones/${zoneId}/files/${file.id}/download?mode=inline`;
-      const res = await axios.get(url, {
-        responseType: "blob",
-      });
-
-      const blob = res.data;
-      const contentType =
-        res.headers["content-type"] ||
-        file.mimeType ||
-        "application/octet-stream";
-      const objectUrl = URL.createObjectURL(
-        new Blob([blob], { type: contentType })
-      );
-
-      setPreviewObjectUrl(objectUrl);
-      setPreviewFile({
-        ...file,
-        mimeType: contentType,
-        url: objectUrl,
-      });
-    } catch (err) {
-      console.error(err);
-      setPreviewError(
-        err.response?.data?.message || "Failed to load file preview."
-      );
-    } finally {
-      setPreviewLoading(false);
-    }
   };
 
   const closePreview = () => {
@@ -648,18 +599,6 @@ export default function ZonePage() {
   const renderPreviewContent = () => {
     if (!previewFile) return null;
 
-    if (previewLoading || !previewFile.url) {
-      return (
-        <div className="max-w-xs w-full rounded-xl border border-sz-border bg-slate-950 p-4 text-sm text-slate-100 text-center">
-          <p className="mb-1">Loading preview…</p>
-          <p className="text-xs text-slate-500">
-            If this takes long for large files, you can close and use Download
-            instead.
-          </p>
-        </div>
-      );
-    }
-
     if (previewError) {
       return (
         <div className="max-w-xs w-full rounded-xl border border-red-500/40 bg-red-500/10 p-4 text-sm text-red-100">
@@ -670,11 +609,12 @@ export default function ZonePage() {
 
     const mime = previewFile.mimeType || "";
     const type = fileTypeLabel(mime);
+    const src = previewFile.url;
 
     if (type === "image") {
       return (
         <img
-          src={previewFile.url}
+          src={src}
           alt={previewFile.originalName}
           className="max-h-[80vh] max-w-[90vw] object-contain rounded-xl border border-sz-border"
         />
@@ -684,7 +624,7 @@ export default function ZonePage() {
     if (type === "video") {
       return (
         <video
-          src={previewFile.url}
+          src={src}
           controls
           className="max-h-[70vh] max-w-[90vw] rounded-xl border border-sz-border bg-black"
         />
@@ -694,14 +634,14 @@ export default function ZonePage() {
     if (type === "pdf") {
       return (
         <iframe
-          src={previewFile.url}
+          src={src}
           title={previewFile.originalName}
           className="w-[90vw] h-[80vh] rounded-xl border border-sz-border bg-slate-950"
         />
       );
     }
 
-    // Fallback for docx/xlsx/pptx/zip/other
+    // Fallback for docx/zip/other
     return (
       <div className="max-w-lg w-full rounded-xl border border-sz-border bg-slate-950 p-4 text-sm text-slate-100">
         <p className="font-medium mb-2">{previewFile.originalName}</p>
@@ -778,7 +718,7 @@ export default function ZonePage() {
             zoneInfo && (
               <>
                 {/* Messages */}
-                {(uploadError || uploadInfo || copiedLink) && (
+                {(uploadError || uploadInfo) && (
                   <div className="space-y-2">
                     {uploadError && (
                       <div className="rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-2 text-xs text-red-200">
@@ -790,11 +730,6 @@ export default function ZonePage() {
                         {uploadInfo}
                       </div>
                     )}
-                    {copiedLink && (
-                      <div className="rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-2 text-xs text-emerald-200">
-                        Join link copied! Share it along with the password.
-                      </div>
-                    )}
                   </div>
                 )}
 
@@ -803,29 +738,15 @@ export default function ZonePage() {
                   {/* Overview */}
                   <div className="rounded-2xl border border-sz-border bg-slate-950/70 p-6 shadow-sz-soft">
                     <div>
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <h2 className="text-xl sm:text-2xl font-semibold mb-1">
-                            {zoneInfo.zoneName}
-                          </h2>
-                          <p className="text-sm text-slate-300">
-                            Owner:{" "}
-                            <span className="text-sz-accent font-medium">
-                              {zoneInfo.ownerUsername}
-                            </span>
-                          </p>
-                        </div>
-                        {isOwner && joinLink && (
-                          <button
-                            type="button"
-                            onClick={handleCopyJoinLink}
-                            className="text-[11px] px-3 py-1.5 rounded-lg bg-slate-900 border border-sz-border hover:bg-slate-800"
-                          >
-                            Copy join link
-                          </button>
-                        )}
-                      </div>
-
+                      <h2 className="text-xl sm:text-2xl font-semibold mb-1">
+                        {zoneInfo.zoneName}
+                      </h2>
+                      <p className="text-sm text-slate-300">
+                        Owner:{" "}
+                        <span className="text-sz-accent font-medium">
+                          {zoneInfo.ownerUsername}
+                        </span>
+                      </p>
                       <p className="mt-1 text-xs text-slate-400">
                         Expires at:{" "}
                         <span className="font-mono">
@@ -881,7 +802,7 @@ export default function ZonePage() {
                     {/* Online users */}
                     <div className="flex items-center justify-between mb-3">
                       <h3 className="text-base sm:text-lg font-semibold">
-                        Users in this zone
+                        Online users in this zone
                       </h3>
                     </div>
 
