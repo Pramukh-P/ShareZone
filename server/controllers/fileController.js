@@ -198,41 +198,64 @@ export const handleUploadFiles = async (req, res) => {
 // (No changes here – keep your existing implementation that already works)
 export const handleDownloadFile = async (req, res) => {
   try {
-    const { zoneId, fileId } = req.params;
+    const { fileId } = req.params;
+    const { mode } = req.query; // mode="inline" for View, otherwise Download
 
-    const zone = await Zone.findById(zoneId);
-    if (!zone || zone.isDeleted) {
-      return res.status(404).json({ message: "Zone not found" });
-    }
-
-    if (zone.expiresAt < new Date()) {
-      return res.status(410).json({ message: "Zone has expired" });
-    }
-
-    const fileDoc = await File.findOne({ _id: fileId, zone: zone._id });
+    const fileDoc = await File.findById(fileId);
     if (!fileDoc) {
-      return res.status(404).json({ message: "File not found in this zone" });
+      return res.status(404).json({ message: "File not found" });
     }
 
-    // For downloads and inline use, we just redirect to Cloudinary,
-    // since that works well now for all types (after your settings update).
-    if (fileDoc.cloudinarySecureUrl) {
-      // mode=inline or download – we just redirect; Cloudinary handles it
-      return res.redirect(fileDoc.cloudinarySecureUrl);
+    const secureUrl = fileDoc.cloudinarySecureUrl;
+    if (!secureUrl) {
+      return res.status(500).json({ message: "File storage URL is missing" });
     }
 
-    // Fallback: local uploads (legacy)
-    const localUploadsDir = path.join(__dirname, "..", "uploads");
-    const filePath = path.join(localUploadsDir, fileDoc.storedName || "");
-    if (!fs.existsSync(filePath)) {
-      return res
-        .status(404)
-        .json({ message: "File no longer exists on server" });
+    // 👁️ View in browser (used by the View button)
+    if (mode === "inline") {
+      // No attachment flags – let the browser decide how to display
+      return res.redirect(secureUrl);
     }
 
-    return res.download(filePath, fileDoc.originalName);
+    // ⬇️ Download (used by the Download button)
+    // Build URL that forces download AND sets the original filename
+    const downloadUrl = buildAttachmentUrl(secureUrl, fileDoc.originalName);
+
+    return res.redirect(downloadUrl);
   } catch (err) {
-    console.error("Error downloading file:", err);
-    return res.status(500).json({ message: "Internal server error" });
+    console.error("downloadFile error:", err);
+    return res.status(500).json({ message: "Failed to download file" });
   }
 };
+
+// helper: build a Cloudinary URL that forces download
+function buildAttachmentUrl(secureUrl, originalName) {
+  if (!secureUrl) return null;
+
+  try {
+    const urlObj = new URL(secureUrl);
+
+    // Path looks like: /<cloud_name>/<resource_type>/upload/...stuff...
+    const parts = urlObj.pathname.split("/"); // ["", "dipxchsu3", "image", "upload", "v1234", ...]
+    const uploadIdx = parts.indexOf("upload");
+    if (uploadIdx === -1) {
+      // unexpected, just fall back
+      return secureUrl;
+    }
+
+    const safeName = encodeURIComponent(originalName || "download");
+
+    // Insert Cloudinary transformation segment: fl_attachment:<filename>
+    const newParts = [
+      ...parts.slice(0, uploadIdx + 1),           // up to and including "upload"
+      `fl_attachment:${safeName}`,                // transformation segment
+      ...parts.slice(uploadIdx + 1),              // rest of the path (version, folder, public_id.ext)
+    ];
+
+    urlObj.pathname = newParts.join("/");
+    return urlObj.toString();
+  } catch (err) {
+    console.error("buildAttachmentUrl error:", err);
+    return secureUrl;
+  }
+}
