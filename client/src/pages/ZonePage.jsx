@@ -18,6 +18,7 @@ function fileTypeLabel(mime) {
   if (!mime) return "file";
   if (mime.startsWith("image/")) return "image";
   if (mime.startsWith("video/")) return "video";
+  if (mime.startsWith("audio/")) return "audio";
   if (mime === "application/pdf") return "pdf";
   if (mime.includes("wordprocessingml")) return "docx";
   if (mime.includes("presentationml")) return "pptx";
@@ -26,7 +27,6 @@ function fileTypeLabel(mime) {
   return "file";
 }
 
-// 🕒 12-hour date+time (no seconds) for display
 function formatTime(ts) {
   try {
     return new Date(ts).toLocaleString(undefined, {
@@ -42,7 +42,6 @@ function formatTime(ts) {
   }
 }
 
-// 🕒 Helper: compute label + severity from expiresAt & now
 function getTimeLeftInfo(expiresAt, nowMs) {
   if (!expiresAt) return { label: "", isExpired: false, severity: "ok" };
 
@@ -68,9 +67,9 @@ function getTimeLeftInfo(expiresAt, nowMs) {
 
   let severity = "ok";
   if (diff <= 5 * 60 * 1000) {
-    severity = "danger"; // < 5 min
+    severity = "danger";
   } else if (diff <= 30 * 60 * 1000) {
-    severity = "warn"; // < 30 min
+    severity = "warn";
   }
 
   return { label, isExpired: false, severity };
@@ -104,40 +103,39 @@ export default function ZonePage() {
   const [socket, setSocket] = useState(null);
   const [onlineUsers, setOnlineUsers] = useState([]);
 
-  // 🔍 Filters
+  // Filters
   const [filterUsername, setFilterUsername] = useState("");
   const [filterType, setFilterType] = useState("all");
   const [filterNewOnly, setFilterNewOnly] = useState(false);
 
-  // Manual "Uploaded since" time (12h format)
-  const [filterSinceHour, setFilterSinceHour] = useState(""); // "1"–"12"
-  const [filterSinceMinute, setFilterSinceMinute] = useState(""); // "0"–"59"
-  const [filterSinceAmPm, setFilterSinceAmPm] = useState("am"); // "am" | "pm"
+  const [filterSinceHour, setFilterSinceHour] = useState("");
+  const [filterSinceMinute, setFilterSinceMinute] = useState("");
+  const [filterSinceAmPm, setFilterSinceAmPm] = useState("am");
 
-  // 🕒 Live "now" for countdown
   const [now, setNow] = useState(() => Date.now());
 
-  // Extend zone controls (owner only)
   const [extendHours, setExtendHours] = useState(1);
   const [extendLoading, setExtendLoading] = useState(false);
 
-  // Kick-user state
   const [kickLoadingUser, setKickLoadingUser] = useState(null);
 
-  // 👁️ Preview modal state
-  const [previewFile, setPreviewFile] = useState(null); // { id, originalName, mimeType, sizeBytes, url }
+  const [previewFile, setPreviewFile] = useState(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState("");
   const [previewObjectUrl, setPreviewObjectUrl] = useState(null);
 
-  // Copy join link state
-  const [copyingLink, setCopyingLink] = useState(false);
-
   const maxSizeMb = 50;
   const allowedTypes =
-    "PDF, images (JPG/PNG/GIF), MP4, DOCX, XLSX, PPTX, ZIP";
+    "PDF, images (JPG/PNG/GIF), MP4, DOCX, XLSX, PPTX, ZIP, MP3 audio";
 
   const batches = useMemo(() => zoneInfo?.batches || [], [zoneInfo]);
+
+  // Simple mobile detection (for PDF view behavior)
+  const isMobile =
+    typeof navigator !== "undefined" &&
+    /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
+      navigator.userAgent
+    );
 
   const fetchZone = async () => {
     try {
@@ -163,20 +161,14 @@ export default function ZonePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [zoneId]);
 
-  // 🕒 Update "now" every second
   useEffect(() => {
-    const id = setInterval(() => {
-      setNow(Date.now());
-    }, 1000);
+    const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
   }, []);
 
-  // Socket.io: presence + live zone events
+  // Socket.io
   useEffect(() => {
-    const s = io(SOCKET_URL, {
-      transports: ["websocket"],
-    });
-
+    const s = io(SOCKET_URL, { transports: ["websocket"] });
     setSocket(s);
 
     s.on("connect", () => {
@@ -189,10 +181,9 @@ export default function ZonePage() {
     });
 
     s.on("user_joined", ({ username: joinedUser }) => {
-      setOnlineUsers((prev) => {
-        if (prev.includes(joinedUser)) return prev;
-        return [...prev, joinedUser];
-      });
+      setOnlineUsers((prev) =>
+        prev.includes(joinedUser) ? prev : [...prev, joinedUser]
+      );
     });
 
     s.on("user_left", ({ username: leftUser }) => {
@@ -206,10 +197,7 @@ export default function ZonePage() {
           (b) => String(b.id) === String(batch.id)
         );
         if (exists) return prev;
-        return {
-          ...prev,
-          batches: [...(prev.batches || []), batch],
-        };
+        return { ...prev, batches: [...(prev.batches || []), batch] };
       });
     });
 
@@ -217,9 +205,7 @@ export default function ZonePage() {
       "zone_lock_state",
       ({ zoneId: changedZoneId, uploadsLocked, updatedBy }) => {
         if (changedZoneId !== zoneId) return;
-        setZoneInfo((prev) =>
-          prev ? { ...prev, uploadsLocked } : prev
-        );
+        setZoneInfo((prev) => (prev ? { ...prev, uploadsLocked } : prev));
         setUploadInfo(
           `Uploads ${uploadsLocked ? "locked" : "unlocked"} by ${updatedBy}`
         );
@@ -230,9 +216,7 @@ export default function ZonePage() {
       "zone_extended",
       ({ zoneId: changedZoneId, expiresAt, extendedBy, extraHours }) => {
         if (changedZoneId !== zoneId) return;
-        setZoneInfo((prev) =>
-          prev ? { ...prev, expiresAt } : prev
-        );
+        setZoneInfo((prev) => (prev ? { ...prev, expiresAt } : prev));
         setUploadInfo(
           `Zone extended by ${extraHours} hour${
             extraHours > 1 ? "s" : ""
@@ -241,7 +225,6 @@ export default function ZonePage() {
       }
     );
 
-    // 🛑 User kicked event
     s.on("user_kicked", ({ zoneId: changedZoneId, username: kickedUser }) => {
       if (changedZoneId && String(changedZoneId) !== String(zoneId)) return;
       if (!kickedUser) return;
@@ -256,11 +239,9 @@ export default function ZonePage() {
       }
     });
 
-    // Add ourselves immediately
-    setOnlineUsers((prev) => {
-      if (prev.includes(username)) return prev;
-      return [...prev, username];
-    });
+    setOnlineUsers((prev) =>
+      prev.includes(username) ? prev : [...prev, username]
+    );
 
     return () => {
       s.emit("leave_zone", { zoneId, username });
@@ -268,11 +249,9 @@ export default function ZonePage() {
       setSocket(null);
       setOnlineUsers([]);
     };
-  }, [zoneId, username, navigate]);
+  }, [zoneId, username, navigate, SOCKET_URL]);
 
-  const handleBackHome = () => {
-    navigate("/");
-  };
+  const handleBackHome = () => navigate("/");
 
   const handleFileChange = (e) => {
     const files = Array.from(e.target.files || []);
@@ -281,7 +260,6 @@ export default function ZonePage() {
     setUploadInfo("");
   };
 
-  // 🕒 Time-left info
   const { label: timeLeftLabel, isExpired, severity } = useMemo(
     () => getTimeLeftInfo(zoneInfo?.expiresAt, now),
     [zoneInfo?.expiresAt, now]
@@ -294,34 +272,6 @@ export default function ZonePage() {
       ? "text-amber-300"
       : "text-emerald-300";
 
-  // 🔗 Copy zone join link – fills zone name on Home page
-  const handleCopyJoinLink = async () => {
-    if (!zoneInfo?.zoneName) return;
-    const url = `${window.location.origin}/?zone=${encodeURIComponent(
-      zoneInfo.zoneName
-    )}`;
-
-    try {
-      setCopyingLink(true);
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        await navigator.clipboard.writeText(url);
-        setUploadInfo("Join link copied to clipboard.");
-      } else {
-        // Fallback: show URL in error so user can long-press & copy
-        setUploadError(
-          `Copy not supported. You can copy this link manually: ${url}`
-        );
-      }
-    } catch (err) {
-      console.error(err);
-      setUploadError(
-        `Failed to copy link. You can copy this link manually: ${url}`
-      );
-    } finally {
-      setCopyingLink(false);
-    }
-  };
-
   const handleUploadSubmit = async (e) => {
     e.preventDefault();
     setUploadError("");
@@ -331,17 +281,14 @@ export default function ZonePage() {
       setUploadError("Zone information not loaded yet.");
       return;
     }
-
     if (isExpired) {
       setUploadError("Zone has expired. Uploads are no longer allowed.");
       return;
     }
-
     if (zoneInfo.uploadsLocked) {
       setUploadError("Uploads are currently locked in this zone.");
       return;
     }
-
     if (!selectedFiles.length) {
       setUploadError("Please select at least one file to upload.");
       return;
@@ -358,20 +305,14 @@ export default function ZonePage() {
     if (uploadMessage.trim()) {
       formData.append("message", uploadMessage.trim());
     }
-    selectedFiles.forEach((file) => {
-      formData.append("files", file);
-    });
+    selectedFiles.forEach((file) => formData.append("files", file));
 
     try {
       setUploading(true);
       const res = await axios.post(
         `${API_BASE}/api/zones/${zoneId}/upload`,
         formData,
-        {
-          headers: {
-            "Content-Type": "multipart/form-data",
-          },
-        }
+        { headers: { "Content-Type": "multipart/form-data" } }
       );
 
       setUploadInfo(res.data.message || "Files uploaded successfully.");
@@ -393,8 +334,7 @@ export default function ZonePage() {
   };
 
   const handleToggleLock = async () => {
-    if (!zoneInfo) return;
-    if (!isOwner || !ownerToken) return;
+    if (!zoneInfo || !isOwner || !ownerToken) return;
 
     const newValue = !zoneInfo.uploadsLocked;
 
@@ -403,11 +343,7 @@ export default function ZonePage() {
       const res = await axios.patch(
         `${API_BASE}/api/zones/${zoneId}/lock`,
         { uploadsLocked: newValue },
-        {
-          headers: {
-            "x-owner-token": ownerToken,
-          },
-        }
+        { headers: { "x-owner-token": ownerToken } }
       );
 
       setZoneInfo((prev) =>
@@ -424,10 +360,8 @@ export default function ZonePage() {
     }
   };
 
-  // 🧩 Extend zone time (owner, up to backend-enforced 10h total)
   const handleExtendZone = async () => {
-    if (!zoneInfo) return;
-    if (!isOwner || !ownerToken) return;
+    if (!zoneInfo || !isOwner || !ownerToken) return;
     if (isExpired) {
       setUploadError("Zone has already expired; cannot extend.");
       return;
@@ -439,11 +373,7 @@ export default function ZonePage() {
       const res = await axios.patch(
         `${API_BASE}/api/zones/${zoneId}/extend`,
         { extraHours: extendHours },
-        {
-          headers: {
-            "x-owner-token": ownerToken,
-          },
-        }
+        { headers: { "x-owner-token": ownerToken } }
       );
 
       setZoneInfo((prev) =>
@@ -466,7 +396,6 @@ export default function ZonePage() {
     }
   };
 
-  // 🧨 Kick user (owner only)
   const handleKickUser = async (targetUsername) => {
     if (!isOwner || !ownerToken) return;
     if (!targetUsername || targetUsername === username) return;
@@ -481,18 +410,13 @@ export default function ZonePage() {
       const res = await axios.post(
         `${API_BASE}/api/zones/${zoneId}/kick-user`,
         { username: targetUsername },
-        {
-          headers: {
-            "x-owner-token": ownerToken,
-          },
-        }
+        { headers: { "x-owner-token": ownerToken } }
       );
 
       setUploadInfo(
         res.data.message ||
           `User "${targetUsername}" has been removed from this ShareZone.`
       );
-
       setOnlineUsers((prev) => prev.filter((u) => u !== targetUsername));
     } catch (err) {
       console.error(err);
@@ -505,7 +429,38 @@ export default function ZonePage() {
     }
   };
 
-  // 🔍 Apply filters
+  // 🔗 Copy/share join link (uses ?zone=ZONE_NAME for Home auto-fill)
+  const handleShareLink = async () => {
+    if (!zoneInfo) return;
+    const url = new URL(window.location.origin);
+    url.searchParams.set("zone", zoneInfo.zoneName);
+
+    try {
+      if (navigator.share) {
+        try {
+          await navigator.share({
+            title: `ShareZone: ${zoneInfo.zoneName}`,
+            text: `Join my ShareZone "${zoneInfo.zoneName}"`,
+            url: url.toString(),
+          });
+          return;
+        } catch (err) {
+          if (err.name === "AbortError") return;
+          console.warn("navigator.share failed, falling back to clipboard:", err);
+        }
+      }
+
+      await navigator.clipboard.writeText(url.toString());
+      setUploadInfo("Join link copied to clipboard.");
+    } catch (err) {
+      console.error(err);
+      setUploadError(
+        "Failed to copy link. You can also copy the URL from the address bar."
+      );
+    }
+  };
+
+  // Filters
   const filteredBatches = useMemo(() => {
     if (!batches.length) return [];
 
@@ -513,7 +468,6 @@ export default function ZonePage() {
       ? new Date(zoneInfo.userLastSeenAt)
       : new Date(pageEnteredAt);
 
-    // Time-of-day threshold in minutes from midnight
     let fromMinutes = null;
     if (filterSinceHour.trim() !== "" && filterSinceMinute.trim() !== "") {
       const h12 = parseInt(filterSinceHour, 10);
@@ -528,9 +482,7 @@ export default function ZonePage() {
         m <= 59
       ) {
         let h24 = h12 % 12;
-        if (filterSinceAmPm === "pm") {
-          h24 += 12;
-        }
+        if (filterSinceAmPm === "pm") h24 += 12;
         fromMinutes = h24 * 60 + m;
       }
     }
@@ -558,14 +510,12 @@ export default function ZonePage() {
 
         let files = batch.files || [];
         if (filterType !== "all") {
-          files = files.filter((f) => {
-            const label = fileTypeLabel(f.mimeType);
-            return label === filterType;
-          });
+          files = files.filter(
+            (f) => fileTypeLabel(f.mimeType) === filterType
+          );
         }
 
         if (!files.length) return null;
-
         return { ...batch, files };
       })
       .filter(Boolean);
@@ -590,9 +540,18 @@ export default function ZonePage() {
     setFilterSinceAmPm("am");
   };
 
-  // 👁️ Open preview: ask backend for file bytes (inline mode) and build object URL
+  // Preview
   const openPreview = async (file) => {
     if (isExpired) return;
+
+    const type = fileTypeLabel(file.mimeType);
+
+    // 📱 Special behavior: on mobile, just open system viewer for PDFs
+    if (isMobile && type === "pdf") {
+      const url = `${API_BASE}/api/zones/${zoneId}/files/${file.id}/download`;
+      window.open(url, "_blank");
+      return;
+    }
 
     if (previewObjectUrl) {
       URL.revokeObjectURL(previewObjectUrl);
@@ -601,32 +560,25 @@ export default function ZonePage() {
 
     setPreviewError("");
     setPreviewLoading(true);
-    setPreviewFile({
-      ...file,
-      url: null,
-    });
+
+    setPreviewFile({ ...file, url: null });
 
     try {
-      const url = `${API_BASE}/api/zones/${zoneId}/files/${file.id}/download?mode=inline`;
-      const res = await axios.get(url, {
-        responseType: "blob",
-      });
+      const url = `${API_BASE}/api/zones/${zoneId}/files/${file.id}/download`;
+      const res = await axios.get(url, { responseType: "blob" });
 
       const blob = res.data;
       const contentType =
         res.headers["content-type"] ||
         file.mimeType ||
         "application/octet-stream";
+
       const objectUrl = URL.createObjectURL(
         new Blob([blob], { type: contentType })
       );
 
       setPreviewObjectUrl(objectUrl);
-      setPreviewFile({
-        ...file,
-        mimeType: contentType,
-        url: objectUrl,
-      });
+      setPreviewFile({ ...file, mimeType: contentType, url: objectUrl });
     } catch (err) {
       console.error(err);
       setPreviewError(
@@ -693,6 +645,16 @@ export default function ZonePage() {
       );
     }
 
+    if (type === "audio") {
+      return (
+        <audio
+          src={previewFile.url}
+          controls
+          className="w-[80vw] max-w-md rounded-xl bg-slate-950"
+        />
+      );
+    }
+
     if (type === "pdf") {
       return (
         <iframe
@@ -703,7 +665,6 @@ export default function ZonePage() {
       );
     }
 
-    // Fallback for docx/xlsx/pptx/zip/other
     return (
       <div className="max-w-lg w-full rounded-xl border border-sz-border bg-slate-950 p-4 text-sm text-slate-100">
         <p className="font-medium mb-2">{previewFile.originalName}</p>
@@ -764,7 +725,7 @@ export default function ZonePage() {
         </div>
       </header>
 
-      {/* Main content */}
+      {/* Main */}
       <main className="flex-1">
         <div className="max-w-6xl mx-auto px-4 py-6 space-y-4">
           {loading ? (
@@ -793,55 +754,51 @@ export default function ZonePage() {
                   </div>
                 )}
 
-                {/* Overview + Upload controls */}
+                {/* Overview + Upload */}
                 <section className="grid gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] items-start">
                   {/* Overview */}
                   <div className="rounded-2xl border border-sz-border bg-slate-950/70 p-6 shadow-sz-soft">
                     <div>
-                      <h2 className="text-xl sm:text-2xl font-semibold mb-1">
-                        {zoneInfo.zoneName}
-                      </h2>
-                      <p className="text-sm text-slate-300">
-                        Owner:{" "}
-                        <span className="text-sz-accent font-medium">
-                          {zoneInfo.ownerUsername}
-                        </span>
-                      </p>
-                      <p className="mt-1 text-xs text-slate-400">
-                        Expires at:{" "}
-                        <span className="font-mono">
-                          {formatTime(zoneInfo.expiresAt)}
-                        </span>
-                      </p>
-                      {timeLeftLabel && (
-                        <p className={`mt-1 text-xl ${timeLeftClass}`}>
-                          ● {timeLeftLabel}
-                        </p>
-                      )}
-                      {isExpired && (
-                        <p className="mt-2 text-[11px] text-red-300">
-                          This zone has expired. Uploads are disabled and
-                          downloads may be blocked by the server.
-                        </p>
-                      )}
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <h2 className="text-xl sm:text-2xl font-semibold mb-1">
+                            {zoneInfo.zoneName}
+                          </h2>
+                          <p className="text-sm text-slate-300">
+                            Owner:{" "}
+                            <span className="text-sz-accent font-medium">
+                              {zoneInfo.ownerUsername}
+                            </span>
+                          </p>
+                          <p className="mt-1 text-xs text-slate-400">
+                            Expires at:{" "}
+                            <span className="font-mono">
+                              {formatTime(zoneInfo.expiresAt)}
+                            </span>
+                          </p>
+                          {timeLeftLabel && (
+                            <p className={`mt-1 text-xl ${timeLeftClass}`}>
+                              ● {timeLeftLabel}
+                            </p>
+                          )}
+                          {isExpired && (
+                            <p className="mt-2 text-[11px] text-red-300">
+                              This zone has expired. Uploads are disabled and
+                              downloads may be blocked by the server.
+                            </p>
+                          )}
+                        </div>
 
-                      {/* Share / copy link */}
-                      <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
-                        <span className="text-slate-400">Share this zone:</span>
+                        {/* Share link button */}
                         <button
                           type="button"
-                          onClick={handleCopyJoinLink}
-                          disabled={copyingLink}
-                          className="px-3 py-1.5 rounded-lg bg-slate-900 border border-sz-border text-slate-200 hover:bg-slate-800 disabled:opacity-60 disabled:cursor-not-allowed"
+                          onClick={handleShareLink}
+                          className="text-[11px] px-3 py-1.5 rounded-lg bg-slate-900 border border-sz-border hover:bg-slate-800 whitespace-nowrap"
                         >
-                          {copyingLink ? "Copying..." : "Copy join link"}
+                          Share join link
                         </button>
-                        <span className="text-[10px] text-slate-500">
-                          Link fills zone name. Share password separately.
-                        </span>
                       </div>
 
-                      {/* Extend zone controls (owner only) */}
                       {isOwner && !isExpired && (
                         <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
                           <span className="text-slate-400">Extend zone:</span>
@@ -869,16 +826,17 @@ export default function ZonePage() {
                           </button>
                           <span className="text-[10px] text-slate-500">
                             Max lifetime per zone:{" "}
-                            <span className="text-sz-accent">10 hours</span>{" "}
+                            <span className="text-sz-accent">10 hours</span>
                           </span>
                         </div>
                       )}
                     </div>
+
                     <br />
                     {/* Online users */}
                     <div className="flex items-center justify-between mb-3">
                       <h3 className="text-base sm:text-lg font-semibold">
-                        Online users in this zone
+                        Users in this zone
                       </h3>
                     </div>
 
@@ -964,7 +922,7 @@ export default function ZonePage() {
                         </span>
                       ) : zoneInfo.uploadsLocked ? (
                         <span className="text-red-300">
-                          Uploads are currently locked by Admin: (
+                          Uploads are currently locked by Admin (
                           {zoneInfo.ownerUsername})
                           <br />
                           <span className="text-yellow-200">
@@ -1101,6 +1059,7 @@ export default function ZonePage() {
                         <option value="all">All types</option>
                         <option value="image">Images</option>
                         <option value="video">Videos</option>
+                        <option value="audio">Audio</option>
                         <option value="pdf">PDF</option>
                         <option value="docx">DOCX</option>
                         <option value="pptx">PPTX</option>
@@ -1148,7 +1107,7 @@ export default function ZonePage() {
                   </div>
                 </section>
 
-                {/* Sections: upload batches */}
+                {/* Upload activity */}
                 <section className="mt-4 rounded-2xl border border-sz-border bg-slate-950/70 p-5">
                   <div className="flex items-center justify-between mb-3">
                     <h3 className="text-base sm:text-lg font-semibold">
@@ -1274,7 +1233,7 @@ export default function ZonePage() {
         </div>
       </main>
 
-      {/* 👁️ Preview Modal */}
+      {/* Preview modal */}
       {previewFile && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
           <div className="absolute inset-0" onClick={closePreview} />

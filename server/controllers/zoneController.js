@@ -7,15 +7,14 @@ import { File } from "../models/File.js";
 import { cleanupZoneById } from "../utils/zoneCleanup.js";
 
 const ZONE_MIN_HOURS = 1;
-const ZONE_MAX_HOURS = 5;         
-const ZONE_MAX_TOTAL_HOURS = 10;   
+const ZONE_MAX_HOURS = 5;
+const ZONE_MAX_TOTAL_HOURS = 10;
 
 const getExpiresAt = (durationHours) => {
   const now = Date.now();
   return new Date(now + durationHours * 60 * 60 * 1000);
 };
 
-// small helper: check if zone expired
 const isZoneExpired = (zone) => {
   return zone.expiresAt < new Date();
 };
@@ -26,9 +25,9 @@ export const createZone = async (req, res) => {
     const { zoneName, password, durationHours, username } = req.body;
 
     if (!zoneName || !password || !durationHours || !username) {
-      return res
-        .status(400)
-        .json({ message: "zoneName, password, durationHours, username are required" });
+      return res.status(400).json({
+        message: "zoneName, password, durationHours, username are required",
+      });
     }
 
     if (
@@ -36,18 +35,27 @@ export const createZone = async (req, res) => {
       durationHours < ZONE_MIN_HOURS ||
       durationHours > ZONE_MAX_HOURS
     ) {
-      return res
-        .status(400)
-        .json({
-          message: `Duration must be between ${ZONE_MIN_HOURS} and ${ZONE_MAX_HOURS} hours`,
-        });
+      return res.status(400).json({
+        message: `Duration must be between ${ZONE_MIN_HOURS} and ${ZONE_MAX_HOURS} hours`,
+      });
     }
 
-    // hash password
+    // 🔒 Check if a *live* zone with same name already exists
+    const existingActive = await Zone.findOne({
+      zoneName,
+      isDeleted: false,
+      expiresAt: { $gt: new Date() }, // only consider non-expired
+    });
+
+    if (existingActive) {
+      return res.status(400).json({
+        message:
+          "A live zone with this name already exists. Please choose a different zone name.",
+      });
+    }
+
     const passwordHash = await bcrypt.hash(password, 10);
-
     const ownerSecret = crypto.randomBytes(32).toString("hex");
-
     const expiresAt = getExpiresAt(durationHours);
 
     const zone = await Zone.create({
@@ -73,7 +81,6 @@ export const createZone = async (req, res) => {
         ownerUsername: zone.ownerUsername,
         expiresAt: zone.expiresAt,
       },
-      // This token we will store in localStorage on THIS device only
       ownerToken: ownerSecret,
     });
   } catch (err) {
@@ -101,40 +108,43 @@ export const joinZone = async (req, res) => {
       return res.status(404).json({ message: "Zone not found" });
     }
 
-    // check expiry
     if (isZoneExpired(zone)) {
       return res.status(410).json({ message: "Zone has expired" });
     }
 
-    // check password
     const ok = await bcrypt.compare(password, zone.passwordHash);
     if (!ok) {
       return res.status(401).json({ message: "Invalid password" });
     }
 
-    // Check if user is already kicked from this zone
+    // 🔒 Enforce unique username per zone
     let session = await UserSession.findOne({
       zone: zone._id,
       username,
     });
 
-    if (session && session.isKicked) {
-      return res
-        .status(403)
-        .json({ message: "You have been removed from this zone by the owner." });
+    if (session) {
+      if (session.isKicked) {
+        return res.status(403).json({
+          message: "You have been removed from this zone by the owner.",
+        });
+      }
+
+      // If there is already a non-kicked session with this username,
+      // don't allow a second join with same name.
+      return res.status(400).json({
+        message:
+          "This username is already in use in this zone. Please choose a different username.",
+      });
     }
 
-    if (!session) {
-      session = await UserSession.create({
-        zone: zone._id,
-        username,
-        joinedAt: new Date(),
-        lastSeenAt: new Date(),
-      });
-    } else {
-      session.lastSeenAt = new Date();
-      await session.save();
-    }
+    // Create a fresh session
+    session = await UserSession.create({
+      zone: zone._id,
+      username,
+      joinedAt: new Date(),
+      lastSeenAt: new Date(),
+    });
 
     return res.json({
       message: "Joined zone successfully",
@@ -171,7 +181,6 @@ export const getZoneById = async (req, res) => {
       return res.status(410).json({ message: "Zone has expired" });
     }
 
-    // 🚫 Block kicked users even if they try to open from Joined Zones
     let userLastSeenAt = null;
     if (username) {
       const session = await UserSession.findOne({
@@ -192,7 +201,6 @@ export const getZoneById = async (req, res) => {
       }
     }
 
-    // Fetch all batches for this zone
     const batches = await UploadBatch.find({ zone: zone._id })
       .sort({ createdAt: 1 })
       .lean();
@@ -204,26 +212,21 @@ export const getZoneById = async (req, res) => {
     }
 
     const batchesWithFiles = batches.map((b) => ({
-  id: b._id,
-  uploaderUsername: b.uploaderUsername,
-  createdAt: b.createdAt,
-  message: b.message,
-  files: files
-    .filter((f) => String(f.batch) === String(b._id))
-    .map((f) => ({
-      id: f._id,
-      originalName: f.originalName,
-      storedName: f.storedName,
-      mimeType: f.mimeType,
-      sizeBytes: f.sizeBytes,
-      uploadedAt: f.uploadedAt,
-
-      // 🔹 New fields: use Cloudinary URL directly on frontend
-      cloudinaryUrl: f.cloudinarySecureUrl || f.cloudinaryUrl,
-      cloudinaryResourceType: f.cloudinaryResourceType,
-    })),
-}));
-
+      id: b._id,
+      uploaderUsername: b.uploaderUsername,
+      createdAt: b.createdAt,
+      message: b.message,
+      files: files
+        .filter((f) => String(f.batch) === String(b._id))
+        .map((f) => ({
+          id: f._id,
+          originalName: f.originalName,
+          storedName: f.storedName,
+          mimeType: f.mimeType,
+          sizeBytes: f.sizeBytes,
+          uploadedAt: f.uploadedAt,
+        })),
+    }));
 
     return res.json({
       id: zone._id,
@@ -231,7 +234,7 @@ export const getZoneById = async (req, res) => {
       ownerUsername: zone.ownerUsername,
       expiresAt: zone.expiresAt,
       uploadsLocked: zone.uploadsLocked,
-      userLastSeenAt, // 👈 used by frontend for NEW marker
+      userLastSeenAt,
       batches: batchesWithFiles,
     });
   } catch (err) {
