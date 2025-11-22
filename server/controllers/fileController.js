@@ -197,7 +197,7 @@ export const handleUploadFiles = async (req, res) => {
 // Supports:
 //   ?mode=inline    -> open/view in browser (PDF, images, etc.)
 //   (no mode)       -> download with ORIGINAL filename
-exports.handleDownloadFile = async (req, res) => {
+export const handleDownloadFile = async (req, res) => {
   const { zoneId, fileId } = req.params;
   const { mode } = req.query; // mode === "inline" for preview
 
