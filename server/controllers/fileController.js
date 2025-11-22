@@ -197,53 +197,96 @@ export const handleUploadFiles = async (req, res) => {
 // Supports:
 //   ?mode=inline    -> open/view in browser (PDF, images, etc.)
 //   (no mode)       -> download with ORIGINAL filename
-export const handleDownloadFile = async (req, res) => {
-  try {
-    const { zoneId, fileId } = req.params;
-    const { mode } = req.query; // "inline" | undefined
+exports.handleDownloadFile = async (req, res) => {
+  const { zoneId, fileId } = req.params;
+  const { mode } = req.query; // mode === "inline" for preview
 
+  try {
     const zone = await Zone.findById(zoneId);
-    if (!zone || zone.isDeleted) {
+    if (!zone) {
       return res.status(404).json({ message: "Zone not found" });
     }
 
-    if (zone.expiresAt < new Date()) {
-      return res.status(410).json({ message: "Zone has expired" });
+    // Zone expiry check
+    if (zone.expiresAt && zone.expiresAt.getTime() <= Date.now()) {
+      return res
+        .status(410)
+        .json({ message: "Zone has expired. Files are no longer available." });
     }
 
     const fileDoc = await File.findOne({ _id: fileId, zone: zone._id });
     if (!fileDoc) {
-      return res.status(404).json({ message: "File not found in this zone" });
+      return res.status(404).json({ message: "File not found" });
     }
 
+    // Build the base Cloudinary URL for this resource
     const resourceType = fileDoc.cloudinaryResourceType || "raw";
-    const publicId = fileDoc.cloudinaryPublicId;
 
-    if (!publicId) {
-      return res.status(500).json({ message: "File is missing Cloudinary info" });
-    }
-
-    // ✅ INLINE PREVIEW
-    if (mode === "inline") {
-      const inlineUrl = cloudinary.url(publicId, {
-        resource_type: resourceType,
-        secure: true,
-      });
-      return res.redirect(inlineUrl);
-    }
-
-    // ✅ DOWNLOAD WITH ORIGINAL NAME
-    const originalName = fileDoc.originalName || "download";
-    // Cloudinary will add fl_attachment:filename and set Content-Disposition
-    const downloadUrl = cloudinary.url(publicId, {
+    const upstreamUrl = cloudinary.url(fileDoc.cloudinaryPublicId, {
       resource_type: resourceType,
+      type: "upload",
       secure: true,
-      flags: `attachment:${originalName}`,
     });
 
-    return res.redirect(downloadUrl);
+    const isInline = mode === "inline";
+
+    // Use the original file name for the download
+    const originalName =
+      (fileDoc.originalName && fileDoc.originalName.toString()) || "file";
+    // very small sanitization: no newlines or quotes inside header
+    const safeName = originalName.replace(/[\r\n"]/g, "");
+
+    res.setHeader(
+      "Content-Disposition",
+      `${isInline ? "inline" : "attachment"}; filename="${safeName}"`
+    );
+    res.setHeader(
+      "Content-Type",
+      fileDoc.mimeType || "application/octet-stream"
+    );
+
+    const urlObj = new URL(upstreamUrl);
+
+    https
+      .get(urlObj, (upstreamRes) => {
+        if (upstreamRes.statusCode >= 400) {
+          console.error(
+            "Cloudinary download error:",
+            upstreamRes.statusCode,
+            upstreamRes.statusMessage
+          );
+          // 404 from Cloudinary → 404 for client; otherwise 502 gateway error
+          if (!res.headersSent) {
+            res.sendStatus(
+              upstreamRes.statusCode === 404 ? 404 : 502
+            );
+          }
+          upstreamRes.resume();
+          return;
+        }
+
+        upstreamRes.on("error", (err) => {
+          console.error("Error streaming from Cloudinary:", err);
+          if (!res.headersSent) {
+            res.sendStatus(500);
+          } else {
+            res.end();
+          }
+        });
+
+        // Pipe Cloudinary response directly to client
+        upstreamRes.pipe(res);
+      })
+      .on("error", (err) => {
+        console.error("Error requesting Cloudinary URL:", err);
+        if (!res.headersSent) {
+          res.sendStatus(500);
+        }
+      });
   } catch (err) {
-    console.error("Error downloading file:", err);
-    return res.status(500).json({ message: "Internal server error" });
+    console.error(err);
+    if (!res.headersSent) {
+      res.status(500).json({ message: "Failed to download file." });
+    }
   }
 };

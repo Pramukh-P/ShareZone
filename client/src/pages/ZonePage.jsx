@@ -20,8 +20,8 @@ function fileTypeLabel(mime) {
   if (mime.startsWith("video/")) return "video";
   if (mime === "application/pdf") return "pdf";
   if (mime.includes("wordprocessingml")) return "docx";
-  if (mime.includes("spreadsheetml")) return "xlsx";
   if (mime.includes("presentationml")) return "pptx";
+  if (mime.includes("spreadsheetml")) return "xlsx";
   if (mime.includes("zip")) return "zip";
   return "file";
 }
@@ -126,12 +126,16 @@ export default function ZonePage() {
 
   // 👁️ Preview modal state
   const [previewFile, setPreviewFile] = useState(null); // { id, originalName, mimeType, sizeBytes, url }
-  const [previewLoading, setPreviewLoading] = useState(false); // kept for future, not heavily used now
+  const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState("");
-  const [previewObjectUrl, setPreviewObjectUrl] = useState(null); // kept in case you later re-add blob previews
+  const [previewObjectUrl, setPreviewObjectUrl] = useState(null);
+
+  // Copy join link state
+  const [copyingLink, setCopyingLink] = useState(false);
 
   const maxSizeMb = 50;
-  const allowedTypes = "PDF, images (JPG/PNG/GIF), MP4, DOCX, XLSX, PPTX, ZIP";
+  const allowedTypes =
+    "PDF, images (JPG/PNG/GIF), MP4, DOCX, XLSX, PPTX, ZIP";
 
   const batches = useMemo(() => zoneInfo?.batches || [], [zoneInfo]);
 
@@ -213,7 +217,9 @@ export default function ZonePage() {
       "zone_lock_state",
       ({ zoneId: changedZoneId, uploadsLocked, updatedBy }) => {
         if (changedZoneId !== zoneId) return;
-        setZoneInfo((prev) => (prev ? { ...prev, uploadsLocked } : prev));
+        setZoneInfo((prev) =>
+          prev ? { ...prev, uploadsLocked } : prev
+        );
         setUploadInfo(
           `Uploads ${uploadsLocked ? "locked" : "unlocked"} by ${updatedBy}`
         );
@@ -224,7 +230,9 @@ export default function ZonePage() {
       "zone_extended",
       ({ zoneId: changedZoneId, expiresAt, extendedBy, extraHours }) => {
         if (changedZoneId !== zoneId) return;
-        setZoneInfo((prev) => (prev ? { ...prev, expiresAt } : prev));
+        setZoneInfo((prev) =>
+          prev ? { ...prev, expiresAt } : prev
+        );
         setUploadInfo(
           `Zone extended by ${extraHours} hour${
             extraHours > 1 ? "s" : ""
@@ -260,7 +268,7 @@ export default function ZonePage() {
       setSocket(null);
       setOnlineUsers([]);
     };
-  }, [zoneId, username, navigate, SOCKET_URL]);
+  }, [zoneId, username, navigate]);
 
   const handleBackHome = () => {
     navigate("/");
@@ -285,6 +293,34 @@ export default function ZonePage() {
       : severity === "warn"
       ? "text-amber-300"
       : "text-emerald-300";
+
+  // 🔗 Copy zone join link – fills zone name on Home page
+  const handleCopyJoinLink = async () => {
+    if (!zoneInfo?.zoneName) return;
+    const url = `${window.location.origin}/?zone=${encodeURIComponent(
+      zoneInfo.zoneName
+    )}`;
+
+    try {
+      setCopyingLink(true);
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(url);
+        setUploadInfo("Join link copied to clipboard.");
+      } else {
+        // Fallback: show URL in error so user can long-press & copy
+        setUploadError(
+          `Copy not supported. You can copy this link manually: ${url}`
+        );
+      }
+    } catch (err) {
+      console.error(err);
+      setUploadError(
+        `Failed to copy link. You can copy this link manually: ${url}`
+      );
+    } finally {
+      setCopyingLink(false);
+    }
+  };
 
   const handleUploadSubmit = async (e) => {
     e.preventDefault();
@@ -311,9 +347,7 @@ export default function ZonePage() {
       return;
     }
 
-    const tooBig = selectedFiles.some(
-      (f) => f.size > maxSizeMb * 1024 * 1024
-    );
+    const tooBig = selectedFiles.some((f) => f.size > maxSizeMb * 1024 * 1024);
     if (tooBig) {
       setUploadError(`Each file must be <= ${maxSizeMb} MB.`);
       return;
@@ -342,7 +376,6 @@ export default function ZonePage() {
 
       setUploadInfo(res.data.message || "Files uploaded successfully.");
 
-      // Refresh zone (keeps userLastSeenAt in sync)
       await fetchZone();
 
       setSelectedFiles([]);
@@ -361,9 +394,7 @@ export default function ZonePage() {
 
   const handleToggleLock = async () => {
     if (!zoneInfo) return;
-    if (!isOwner || !ownerToken) {
-      return;
-    }
+    if (!isOwner || !ownerToken) return;
 
     const newValue = !zoneInfo.uploadsLocked;
 
@@ -415,7 +446,6 @@ export default function ZonePage() {
         }
       );
 
-      // Server enforces: createdAt → max 10h total
       setZoneInfo((prev) =>
         prev ? { ...prev, expiresAt: res.data.expiresAt } : prev
       );
@@ -463,7 +493,6 @@ export default function ZonePage() {
           `User "${targetUsername}" has been removed from this ShareZone.`
       );
 
-      // Optimistic removal from local list
       setOnlineUsers((prev) => prev.filter((u) => u !== targetUsername));
     } catch (err) {
       console.error(err);
@@ -498,7 +527,7 @@ export default function ZonePage() {
         m >= 0 &&
         m <= 59
       ) {
-        let h24 = h12 % 12; // 12 => 0, 1–11 => same
+        let h24 = h12 % 12;
         if (filterSinceAmPm === "pm") {
           h24 += 12;
         }
@@ -512,17 +541,14 @@ export default function ZonePage() {
       .map((batch) => {
         const batchDate = new Date(batch.createdAt);
 
-        // New-only filter
         if (filterNewOnly && batchDate <= refTime) return null;
 
-        // "Uploaded since (time)" – compare time-of-day only
         if (fromMinutes !== null) {
           const batchMinutes =
             batchDate.getHours() * 60 + batchDate.getMinutes();
           if (batchMinutes < fromMinutes) return null;
         }
 
-        // Username filter
         if (
           usernameFilter &&
           !batch.uploaderUsername.toLowerCase().includes(usernameFilter)
@@ -530,7 +556,6 @@ export default function ZonePage() {
           return null;
         }
 
-        // File type filter
         let files = batch.files || [];
         if (filterType !== "all") {
           files = files.filter((f) => {
@@ -565,25 +590,51 @@ export default function ZonePage() {
     setFilterSinceAmPm("am");
   };
 
-  // 👁️ Open preview: just point iframe to our inline URL
-  const openPreview = (file) => {
+  // 👁️ Open preview: ask backend for file bytes (inline mode) and build object URL
+  const openPreview = async (file) => {
     if (isExpired) return;
 
-    // clear previous object URL (if any)
     if (previewObjectUrl) {
       URL.revokeObjectURL(previewObjectUrl);
       setPreviewObjectUrl(null);
     }
 
     setPreviewError("");
-    setPreviewLoading(false);
-
-    const inlineUrl = `${API_BASE}/api/zones/${zoneId}/files/${file.id}/download?mode=inline`;
-
+    setPreviewLoading(true);
     setPreviewFile({
       ...file,
-      url: inlineUrl,
+      url: null,
     });
+
+    try {
+      const url = `${API_BASE}/api/zones/${zoneId}/files/${file.id}/download?mode=inline`;
+      const res = await axios.get(url, {
+        responseType: "blob",
+      });
+
+      const blob = res.data;
+      const contentType =
+        res.headers["content-type"] ||
+        file.mimeType ||
+        "application/octet-stream";
+      const objectUrl = URL.createObjectURL(
+        new Blob([blob], { type: contentType })
+      );
+
+      setPreviewObjectUrl(objectUrl);
+      setPreviewFile({
+        ...file,
+        mimeType: contentType,
+        url: objectUrl,
+      });
+    } catch (err) {
+      console.error(err);
+      setPreviewError(
+        err.response?.data?.message || "Failed to load file preview."
+      );
+    } finally {
+      setPreviewLoading(false);
+    }
   };
 
   const closePreview = () => {
@@ -599,6 +650,18 @@ export default function ZonePage() {
   const renderPreviewContent = () => {
     if (!previewFile) return null;
 
+    if (previewLoading || !previewFile.url) {
+      return (
+        <div className="max-w-xs w-full rounded-xl border border-sz-border bg-slate-950 p-4 text-sm text-slate-100 text-center">
+          <p className="mb-1">Loading preview…</p>
+          <p className="text-xs text-slate-500">
+            If this takes long for large files, you can close and use Download
+            instead.
+          </p>
+        </div>
+      );
+    }
+
     if (previewError) {
       return (
         <div className="max-w-xs w-full rounded-xl border border-red-500/40 bg-red-500/10 p-4 text-sm text-red-100">
@@ -609,12 +672,11 @@ export default function ZonePage() {
 
     const mime = previewFile.mimeType || "";
     const type = fileTypeLabel(mime);
-    const src = previewFile.url;
 
     if (type === "image") {
       return (
         <img
-          src={src}
+          src={previewFile.url}
           alt={previewFile.originalName}
           className="max-h-[80vh] max-w-[90vw] object-contain rounded-xl border border-sz-border"
         />
@@ -624,7 +686,7 @@ export default function ZonePage() {
     if (type === "video") {
       return (
         <video
-          src={src}
+          src={previewFile.url}
           controls
           className="max-h-[70vh] max-w-[90vw] rounded-xl border border-sz-border bg-black"
         />
@@ -634,14 +696,14 @@ export default function ZonePage() {
     if (type === "pdf") {
       return (
         <iframe
-          src={src}
+          src={previewFile.url}
           title={previewFile.originalName}
           className="w-[90vw] h-[80vh] rounded-xl border border-sz-border bg-slate-950"
         />
       );
     }
 
-    // Fallback for docx/zip/other
+    // Fallback for docx/xlsx/pptx/zip/other
     return (
       <div className="max-w-lg w-full rounded-xl border border-sz-border bg-slate-950 p-4 text-sm text-slate-100">
         <p className="font-medium mb-2">{previewFile.originalName}</p>
@@ -705,7 +767,6 @@ export default function ZonePage() {
       {/* Main content */}
       <main className="flex-1">
         <div className="max-w-6xl mx-auto px-4 py-6 space-y-4">
-          {/* Zone load state */}
           {loading ? (
             <div className="rounded-2xl border border-sz-border bg-slate-950/70 p-6 text-sm text-slate-300">
               Loading zone details...
@@ -717,7 +778,6 @@ export default function ZonePage() {
           ) : (
             zoneInfo && (
               <>
-                {/* Messages */}
                 {(uploadError || uploadInfo) && (
                   <div className="space-y-2">
                     {uploadError && (
@@ -764,6 +824,22 @@ export default function ZonePage() {
                           downloads may be blocked by the server.
                         </p>
                       )}
+
+                      {/* Share / copy link */}
+                      <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+                        <span className="text-slate-400">Share this zone:</span>
+                        <button
+                          type="button"
+                          onClick={handleCopyJoinLink}
+                          disabled={copyingLink}
+                          className="px-3 py-1.5 rounded-lg bg-slate-900 border border-sz-border text-slate-200 hover:bg-slate-800 disabled:opacity-60 disabled:cursor-not-allowed"
+                        >
+                          {copyingLink ? "Copying..." : "Copy join link"}
+                        </button>
+                        <span className="text-[10px] text-slate-500">
+                          Link fills zone name. Share password separately.
+                        </span>
+                      </div>
 
                       {/* Extend zone controls (owner only) */}
                       {isOwner && !isExpired && (
@@ -1027,8 +1103,8 @@ export default function ZonePage() {
                         <option value="video">Videos</option>
                         <option value="pdf">PDF</option>
                         <option value="docx">DOCX</option>
-                        <option value="xlsx">XLSX</option>
                         <option value="pptx">PPTX</option>
+                        <option value="xlsx">XLSX</option>
                         <option value="zip">ZIP</option>
                         <option value="file">Others</option>
                       </select>
