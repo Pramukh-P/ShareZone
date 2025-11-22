@@ -5,6 +5,7 @@ import multer from "multer";
 import path from "path";
 import { fileURLToPath } from "url";
 import { v2 as cloudinary } from "cloudinary";
+import axios from "axios";
 
 import { Zone } from "../models/Zone.js";
 import { UploadBatch } from "../models/UploadBatch.js";
@@ -12,7 +13,7 @@ import { File } from "../models/File.js";
 
 const MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024; // 50 MB
 
-// Allowed mime types: PDF, images, MP4, DOCX, ZIP, AUDIO
+// Allowed mime types: PDF, images, MP4, DOCX, PPTX, XLSX, ZIP, AUDIO
 const ALLOWED_MIME_TYPES = [
   "application/pdf",
   "image/jpeg",
@@ -25,7 +26,7 @@ const ALLOWED_MIME_TYPES = [
   "application/zip",
   "application/x-zip-compressed",
 
-  // 🎧 audio (mp3, mpeg)
+  // audio
   "audio/mpeg",
   "audio/mp3",
 ];
@@ -195,7 +196,6 @@ export const handleUploadFiles = async (req, res) => {
 };
 
 // ---------- GET /api/zones/:zoneId/files/:fileId/download ----------
-// (No changes here – keep your existing implementation that already works)
 export const handleDownloadFile = async (req, res) => {
   try {
     const { fileId } = req.params;
@@ -211,51 +211,48 @@ export const handleDownloadFile = async (req, res) => {
       return res.status(500).json({ message: "File storage URL is missing" });
     }
 
-    // 👁️ View in browser (used by the View button)
-    if (mode === "inline") {
-      // No attachment flags – let the browser decide how to display
-      return res.redirect(secureUrl);
+    // Fetch from Cloudinary as a stream
+    const cloudRes = await axios.get(secureUrl, {
+      responseType: "stream",
+    });
+
+    const contentType =
+      cloudRes.headers["content-type"] ||
+      fileDoc.mimeType ||
+      "application/octet-stream";
+
+    res.setHeader("Content-Type", contentType);
+
+    if (mode !== "inline") {
+      // Force download with original filename
+      const safeName = (fileDoc.originalName || "download")
+        .replace(/[/\\]/g, "_")
+        .replace(/[\r\n"]/g, "");
+
+      // Set both standard and RFC 5987 filename*
+      const encoded = encodeURIComponent(safeName);
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="${safeName}"; filename*=UTF-8''${encoded}`
+      );
     }
 
-    // ⬇️ Download (used by the Download button)
-    // Build URL that forces download AND sets the original filename
-    const downloadUrl = buildAttachmentUrl(secureUrl, fileDoc.originalName);
+    // Pipe Cloudinary stream to the client
+    cloudRes.data.on("error", (err) => {
+      console.error("Stream error from Cloudinary:", err);
+      if (!res.headersSent) {
+        res.status(500).end("Error streaming file");
+      } else {
+        res.end();
+      }
+    });
 
-    return res.redirect(downloadUrl);
+    cloudRes.data.pipe(res);
   } catch (err) {
-    console.error("downloadFile error:", err);
-    return res.status(500).json({ message: "Failed to download file" });
+    console.error("handleDownloadFile error:", err);
+    if (!res.headersSent) {
+      return res.status(500).json({ message: "Failed to download file" });
+    }
+    res.end();
   }
 };
-
-// helper: build a Cloudinary URL that forces download
-function buildAttachmentUrl(secureUrl, originalName) {
-  if (!secureUrl) return null;
-
-  try {
-    const urlObj = new URL(secureUrl);
-
-    // Path looks like: /<cloud_name>/<resource_type>/upload/...stuff...
-    const parts = urlObj.pathname.split("/"); // ["", "dipxchsu3", "image", "upload", "v1234", ...]
-    const uploadIdx = parts.indexOf("upload");
-    if (uploadIdx === -1) {
-      // unexpected, just fall back
-      return secureUrl;
-    }
-
-    const safeName = encodeURIComponent(originalName || "download");
-
-    // Insert Cloudinary transformation segment: fl_attachment:<filename>
-    const newParts = [
-      ...parts.slice(0, uploadIdx + 1),           // up to and including "upload"
-      `fl_attachment:${safeName}`,                // transformation segment
-      ...parts.slice(uploadIdx + 1),              // rest of the path (version, folder, public_id.ext)
-    ];
-
-    urlObj.pathname = newParts.join("/");
-    return urlObj.toString();
-  } catch (err) {
-    console.error("buildAttachmentUrl error:", err);
-    return secureUrl;
-  }
-}
