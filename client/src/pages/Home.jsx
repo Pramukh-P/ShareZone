@@ -1,5 +1,5 @@
 // src/pages/Home.jsx
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import axios from "axios";
 import logo from "../assets/ShareZone-Logo1.png";
@@ -85,6 +85,11 @@ export default function Home() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
+  // 👉 refs for shared-link behavior
+  const passwordInputRef = useRef(null);
+  const joinSectionRef = useRef(null);
+  const [fromSharedLink, setFromSharedLink] = useState(false);
+
   // Utility: split zones into [notExpired, expired]
   function splitByExpiry(zones, nowMs) {
     const notExpired = [];
@@ -139,8 +144,31 @@ export default function Home() {
       setInfo(
         `Joining shared zone "${sharedZoneName}". Enter password and your username to continue.`
       );
+      setFromSharedLink(true); // flag so we can focus + scroll next
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // After joinForm is filled from shared link, focus password & scroll on small screens
+  useEffect(() => {
+    if (!fromSharedLink || !joinForm.zoneName) return;
+
+    // Focus password input everywhere (desktop + mobile)
+    if (passwordInputRef.current) {
+      passwordInputRef.current.focus();
+    }
+
+    // On small screens, scroll Join section to top
+    if (joinSectionRef.current && window.innerWidth <= 768) {
+      joinSectionRef.current.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    }
+
+    // Run only once
+    setFromSharedLink(false);
+  }, [fromSharedLink, joinForm.zoneName]);
 
   const handleCreateChange = (e) => {
     const { name, value } = e.target;
@@ -456,7 +484,10 @@ export default function Home() {
             </div>
 
             {/* Join Zone */}
-            <div className="bg-slate-950/70 border border-sz-border rounded-2xl p-5 sm:p-6">
+            <div
+              ref={joinSectionRef}
+              className="bg-slate-950/70 border border-sz-border rounded-2xl p-5 sm:p-6"
+            >
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-base sm:text-lg font-semibold">
                   Join Zone
@@ -484,6 +515,7 @@ export default function Home() {
                       Password
                     </label>
                     <input
+                      ref={passwordInputRef}
                       type="password"
                       name="password"
                       value={joinForm.password}

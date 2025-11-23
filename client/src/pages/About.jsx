@@ -19,7 +19,7 @@ export default function About() {
                 ShareZone
               </h1>
               <p className="text-[11px] text-slate-400">
-                Simple, temporary file sharing spaces
+                Simple, temporary file sharing
               </p>
             </div>
           </div>
@@ -37,95 +37,58 @@ export default function About() {
       {/* Main content */}
       <main className="flex-1">
         <div className="max-w-4xl mx-auto px-4 py-6 sm:py-10 space-y-6">
-          <section className="bg-slate-950/70 border border-sz-border rounded-2xl p-5 sm:p-6 space-y-3">
+          {/* Hero / What it is */}
+          <section className="bg-slate-950/70 border border-sz-border rounded-2xl p-6 space-y-3">
             <h2 className="text-xl sm:text-2xl font-semibold">
               What is ShareZone?
             </h2>
             <p className="text-sm text-slate-300">
-              ShareZone is a small web tool for{" "}
-              <span className="text-sz-accent">
-                quick, temporary file sharing
-              </span>{" "}
-              between your devices or a small group of people. Instead of
-              creating accounts or long-lived folders, you spin up a{" "}
-              <strong>zone</strong> that lives only for a few hours and then
-              disappears.
+              ShareZone is a quick way to{" "}
+              <span className="text-sz-accent">share files for a short time</span>{" "}
+              between your devices or with a small group. No accounts, no sign‑ups.
+            </p>
+            <p className="text-sm text-slate-300">
+              You create a temporary space called a <strong>zone</strong>, share
+              it with others, exchange files, and everything is cleaned up
+              automatically after a few hours.
             </p>
           </section>
 
-          <section className="bg-slate-950/70 border border-sz-border rounded-2xl p-5 sm:p-6 space-y-4">
-            <h3 className="text-lg font-semibold">How it works (in short)</h3>
+          {/* How it works – super short */}
+          <section className="bg-slate-950/70 border border-sz-border rounded-2xl p-6 space-y-3">
+            <h3 className="text-lg font-semibold">How it works</h3>
             <ol className="list-decimal list-inside space-y-2 text-sm text-slate-300">
               <li>
-                <strong>Create a zone:</strong> choose a zone name, password,
-                expiry time (1–5 hours), and your username.
+                <strong>Create a zone</strong> with a name, password, and short
+                time limit.
               </li>
               <li>
-                <strong>Share details:</strong> send the zone name + password
-                to anyone you want to share files with.
+                <strong>Share the zone</strong> details or join link with people
+                you trust.
               </li>
               <li>
-                <strong>Join & upload:</strong> everyone joins with a username
-                and can upload files (PDF, images, videos, docs, ZIP) plus an
-                optional message per upload batch.
+                <strong>Everyone uploads</strong> and downloads the files they
+                need.
               </li>
               <li>
-                <strong>Sections by time:</strong> uploads are grouped by{" "}
-                uploader + upload time, so you can quickly see what was shared
-                “at 7:15 PM by Alex”.
-              </li>
-              <li>
-                <strong>Auto clean-up:</strong> when the zone expires or the
-                owner deletes it, ShareZone removes the zone, its files,
-                messages, and sessions from the server.
+                <strong>Zone expires</strong> after a few hours and stored data
+                is removed from this service.
               </li>
             </ol>
           </section>
 
-          <section className="bg-slate-950/70 border border-sz-border rounded-2xl p-5 sm:p-6 space-y-4">
-            <h3 className="text-lg font-semibold">Design principles</h3>
+          {/* Key points */}
+          <section className="bg-slate-950/70 border border-sz-border rounded-2xl p-6 space-y-3">
+            <h3 className="text-lg font-semibold">Why use ShareZone?</h3>
             <ul className="space-y-2 text-sm text-slate-300">
-              <li>
-                <strong>No accounts:</strong> like simple tools such as
-                Dontpad or no-login paste apps, ShareZone doesn&apos;t use
-                registration or profiles. You just pick a username for each
-                zone.
-              </li>
-              <li>
-                <strong>Short-lived by default:</strong> zones exist only for a
-                few hours. This reduces long-term storage and makes it easier to
-                keep things tidy.
-              </li>
-              <li>
-                <strong>Local lists, not global history:</strong> the “Live
-                Zones” and “Joined Zones” lists are stored only in your browser
-                using localStorage. Clearing browser data removes that history
-                from your device.
-              </li>
-              <li>
-                <strong>Real-time updates:</strong> zones can update live using
-                WebSockets — when someone uploads new files or locks uploads,
-                others in the zone see it immediately.
-              </li>
-              <li>
-                <strong>Simple, focused UI:</strong> dark theme with clear
-                sections so you can quickly see who uploaded what and when.
-              </li>
-            </ul>
-          </section>
-
-          <section className="bg-slate-950/70 border border-sz-border rounded-2xl p-5 sm:p-6 space-y-3">
-            <h3 className="text-lg font-semibold">What ShareZone is good for</h3>
-            <ul className="space-y-2 text-sm text-slate-300">
-              <li>Sending slides or documents to classmates or teammates.</li>
-              <li>Moving screenshots or PDFs between your own devices.</li>
-              <li>Sharing meeting materials quickly without email or chat spam.</li>
-              <li>Temporary “drop zones” during a call or online session.</li>
+              <li>No account or registration required.</li>
+              <li>Designed for short‑term sharing (hours, not days).</li>
+              <li>Good for quick hand‑offs in classes, meetings, or calls.</li>
+              <li>Files are stored in the cloud only while the zone is active.</li>
             </ul>
             <p className="text-xs text-slate-500">
-              It&apos;s not meant to be a permanent file backup or a full team
-              drive. Think of it like a temporary table where everyone can drop
-              files for a short time.
+              ShareZone is <strong>not</strong> a permanent backup or cloud
+              drive. If a file matters, save a copy elsewhere too.
             </p>
           </section>
         </div>
