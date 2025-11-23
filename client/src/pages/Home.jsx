@@ -1,5 +1,5 @@
 // src/pages/Home.jsx
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import axios from "axios";
 import logo from "../assets/ShareZone-Logo1.png";
@@ -85,12 +85,10 @@ export default function Home() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
-  // 👉 refs for shared-link behavior
-  const passwordInputRef = useRef(null);
-  const joinSectionRef = useRef(null);
-  const [fromSharedLink, setFromSharedLink] = useState(false);
+  // For auto-focus on password when coming from shared link
+  const joinPasswordRef = useRef(null);
 
-  // Utility: split zones into [notExpired, expired]
+  // Utility: split zones into [notExpired, expired] based on the time we *currently* have
   function splitByExpiry(zones, nowMs) {
     const notExpired = [];
     const expired = [];
@@ -105,70 +103,135 @@ export default function Home() {
     return [notExpired, expired];
   }
 
-  // On mount: load zones from localStorage and clean obvious expired ones
+  // On mount (and when query changes): load zones, clean obvious expired, then refresh from backend
   useEffect(() => {
-    const now = Date.now();
+    const init = async () => {
+      const now = Date.now();
 
-    // Live zones
-    let storedLive = loadLiveZones();
-    const [stillLive, expiredLive] = splitByExpiry(storedLive, now);
-    if (expiredLive.length > 0) {
-      expiredLive.forEach((zone) => {
-        if (!zone.ownerToken) return;
-        axios
-          .delete(`${API_BASE}/api/zones/${zone.id}`, {
-            headers: { "x-owner-token": zone.ownerToken },
-          })
-          .catch(() => {});
-      });
-      saveLiveZones(stillLive);
-    }
+      // 1️⃣ Load from localStorage and do a basic local time filter
+      let storedLive = loadLiveZones();
+      const [stillLive, expiredLive] = splitByExpiry(storedLive, now);
 
-    setLiveZones(stillLive);
+      if (expiredLive.length > 0) {
+        // Optional: try to delete expired zones from backend (owner only)
+        expiredLive.forEach((zone) => {
+          if (!zone.ownerToken) return;
+          axios
+            .delete(`${API_BASE}/api/zones/${zone.id}`, {
+              headers: { "x-owner-token": zone.ownerToken },
+            })
+            .catch(() => {});
+        });
+        saveLiveZones(stillLive);
+      }
 
-    // Joined zones
-    let storedJoined = loadJoinedZones();
-    const [stillJoined] = splitByExpiry(storedJoined, now);
-    if (stillJoined.length !== storedJoined.length) {
-      saveJoinedZones(stillJoined);
-    }
-    setJoinedZones(stillJoined);
+      let storedJoined = loadJoinedZones();
+      const [stillJoined] = splitByExpiry(storedJoined, now);
+      if (stillJoined.length !== storedJoined.length) {
+        saveJoinedZones(stillJoined);
+      }
 
-    // Auto-fill Join form from shared link
-    const sharedZoneName = searchParams.get("zone");
-    if (sharedZoneName) {
-      setJoinForm((prev) => ({
-        ...prev,
-        zoneName: sharedZoneName,
-      }));
-      setInfo(
-        `Joining shared zone "${sharedZoneName}". Enter password and your username to continue.`
+      setLiveZones(stillLive);
+      setJoinedZones(stillJoined);
+
+      // 2️⃣ Refresh expiry & existence from backend (handles extended zones)
+      const allZoneIds = Array.from(
+        new Set([...stillLive, ...stillJoined].map((z) => z.id))
       );
-      setFromSharedLink(true); // flag so we can focus + scroll next
-    }
+      if (allZoneIds.length > 0) {
+        try {
+          const results = await Promise.all(
+            allZoneIds.map(async (id) => {
+              try {
+                const res = await axios.get(`${API_BASE}/api/zones/${id}`);
+                return { id, ok: true, zone: res.data };
+              } catch (err) {
+                const status = err.response?.status;
+                if (status === 404 || status === 410) {
+                  // Zone not found / expired on server
+                  return { id, ok: false, notFound: true };
+                }
+                return { id, ok: false, notFound: false };
+              }
+            })
+          );
+
+          const aliveIds = new Set(
+            results
+              .filter((r) => r.ok && !r.zone.isDeleted)
+              .map((r) => r.id)
+          );
+
+          const updatedExpiryById = new Map(
+            results
+              .filter((r) => r.ok && !r.zone.isDeleted)
+              .map((r) => [r.id, r.zone.expiresAt])
+          );
+
+          const newLive = stillLive
+            .filter((z) => aliveIds.has(z.id))
+            .map((z) => ({
+              ...z,
+              expiresAt: updatedExpiryById.get(z.id) || z.expiresAt,
+            }));
+
+          const newJoined = stillJoined
+            .filter((z) => aliveIds.has(z.id))
+            .map((z) => ({
+              ...z,
+              expiresAt: updatedExpiryById.get(z.id) || z.expiresAt,
+            }));
+
+          setLiveZones(newLive);
+          setJoinedZones(newJoined);
+          saveLiveZones(newLive);
+          saveJoinedZones(newJoined);
+        } catch (err) {
+          console.error("Failed to refresh zone expiries from server:", err);
+          // keep local data if refresh fails
+        }
+      }
+
+      // 3️⃣ Auto-fill Join form from shared link (zone=?)
+      const sharedZoneName = searchParams.get("zone");
+      if (sharedZoneName) {
+        setJoinForm((prev) => ({
+          ...prev,
+          zoneName: sharedZoneName,
+        }));
+        setInfo(
+          `Joining shared zone "${sharedZoneName}". Enter password and your username to continue.`
+        );
+      }
+    };
+
+    init();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [searchParams]);
 
-  // After joinForm is filled from shared link, focus password & scroll on small screens
+  // Separate effect: when opening via shared link, scroll Join section into view on mobile + focus password
   useEffect(() => {
-    if (!fromSharedLink || !joinForm.zoneName) return;
+    const sharedZoneName = searchParams.get("zone");
+    if (!sharedZoneName) return;
 
-    // Focus password input everywhere (desktop + mobile)
-    if (passwordInputRef.current) {
-      passwordInputRef.current.focus();
+    // Scroll Join Zone into view only on small screens
+    if (typeof window !== "undefined" && window.innerWidth <= 768) {
+      const joinSection = document.getElementById("join-zone-section");
+      if (joinSection && joinSection.scrollIntoView) {
+        joinSection.scrollIntoView({ behavior: "smooth", block: "start" });
+      } else {
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      }
     }
 
-    // On small screens, scroll Join section to top
-    if (joinSectionRef.current && window.innerWidth <= 768) {
-      joinSectionRef.current.scrollIntoView({
-        behavior: "smooth",
-        block: "start",
-      });
-    }
+    const t = setTimeout(() => {
+      if (joinPasswordRef.current) {
+        joinPasswordRef.current.focus();
+      }
+    }, 400);
 
-    // Run only once
-    setFromSharedLink(false);
-  }, [fromSharedLink, joinForm.zoneName]);
+    return () => clearTimeout(t);
+  }, [searchParams]);
 
   const handleCreateChange = (e) => {
     const { name, value } = e.target;
@@ -485,7 +548,7 @@ export default function Home() {
 
             {/* Join Zone */}
             <div
-              ref={joinSectionRef}
+              id="join-zone-section"
               className="bg-slate-950/70 border border-sz-border rounded-2xl p-5 sm:p-6"
             >
               <div className="flex items-center justify-between mb-4">
@@ -515,9 +578,9 @@ export default function Home() {
                       Password
                     </label>
                     <input
-                      ref={passwordInputRef}
                       type="password"
                       name="password"
+                      ref={joinPasswordRef}
                       value={joinForm.password}
                       onChange={handleJoinChange}
                       placeholder="Same password as shared"

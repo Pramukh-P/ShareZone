@@ -14,10 +14,9 @@ export default function SplashLoader() {
   const [messageIndex, setMessageIndex] = useState(0);
 
   useEffect(() => {
-    // Change line every 6 seconds → ~30 seconds total for 5 messages
     const id = setInterval(() => {
       setMessageIndex((prev) => (prev + 1) % MESSAGES.length);
-    }, 6000);
+    }, 6000); // change every 6s
 
     return () => clearInterval(id);
   }, []);
@@ -25,7 +24,6 @@ export default function SplashLoader() {
   return (
     <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-sz-bg">
       <div className="relative">
-        {/* Logo in the middle */}
         <div className="h-24 w-24 rounded-full bg-slate-950/90 flex items-center justify-center border border-sz-border shadow-sz-soft">
           <img
             src={logo}
@@ -34,18 +32,15 @@ export default function SplashLoader() {
           />
         </div>
 
-        {/* Spinning ring around the logo */}
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
           <div className="h-28 w-28 rounded-full border-t-2 border-sz-accent/80 border-b-2 border-slate-700/80 animate-spin" />
         </div>
       </div>
 
-      {/* Main static heading */}
       <p className="mt-5 text-xs sm:text-sm text-slate-400 tracking-[0.18em] uppercase">
         ShareZone
       </p>
 
-      {/* Rotating subtitles */}
       <p className="mt-1 text-[10px] text-slate-500">
         {MESSAGES[messageIndex]}
       </p>

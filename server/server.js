@@ -29,21 +29,21 @@ const FRONTEND_ORIGIN = rawFrontendOrigin
   : undefined;
 
 // ---------- Allowed origins (CORS) ----------
-const allowedOrigins = [
+const ALLOWED_ORIGINS = [
   "http://localhost:5173",
   "http://127.0.0.1:5173",
   FRONTEND_ORIGIN,                       // e.g. https://sharezone-web.vercel.app
   "https://sharezone-rz39.onrender.com", // backend origin (optional but fine)
 ].filter(Boolean);
 
-console.log("CORS allowed origins (normalized):", allowedOrigins);
+console.log("CORS allowed origins (normalized):", ALLOWED_ORIGINS);
 
 // ---------- HTTP + Socket.io ----------
 const httpServer = http.createServer(app);
 
 const io = new SocketIOServer(httpServer, {
   cors: {
-    origin: allowedOrigins,
+    origin: ALLOWED_ORIGINS,
     methods: ["GET", "POST", "PATCH", "DELETE"],
   },
 });
@@ -100,22 +100,44 @@ io.on("connection", (socket) => {
 // ---------- Middlewares ----------
 app.use(
   cors({
-    origin: allowedOrigins,
-    credentials: true,
-  })
-);
+    origin: (origin, callback) => {
+      // allow non-browser / server-to-server (no Origin header)
+      if (!origin) return callback(null, true);
 
-// Explicitly handle preflight for all routes
-app.options(
-  "*",
-  cors({
-    origin: allowedOrigins,
+      if (ALLOWED_ORIGINS.includes(origin)) {
+        return callback(null, true);
+      }
+
+      console.warn("❌ CORS blocked origin:", origin);
+      return callback(new Error("Not allowed by CORS"));
+    },
     credentials: true,
   })
 );
 
 app.use(express.json());
 app.use(cookieParser());
+
+// If you ever want direct static access to uploads, you can uncomment this:
+// app.use("/uploads", express.static(path.join(__dirname, "uploads")));
+
+// 🔹 Simple health check / wake-up ping
+app.get("/api/ping", (req, res) => {
+  res.json({
+    ok: true,
+    message: "ShareZone backend is awake",
+    time: new Date().toISOString(),
+  });
+});
+
+// Explicitly handle preflight for all routes (optional but fine)
+app.options(
+  "*",
+  cors({
+    origin: ALLOWED_ORIGINS,
+    credentials: true,
+  })
+);
 
 // ---------- API routes ----------
 app.use("/api/zones", zoneRoutes);
