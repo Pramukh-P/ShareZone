@@ -1,7 +1,27 @@
 // src/components/SplashLoader.jsx
+import { useEffect, useState } from "react";
 import logo from "../assets/ShareZone-Logo1.png";
 
+const MESSAGES = [
+  "Getting your ShareZone ready.",
+  "Lining up your latest shares.",
+  "Tidying up your workspace.",
+  "Making sure everything’s in sync.",
+  "Your space is almost ready.",
+];
+
 export default function SplashLoader() {
+  const [messageIndex, setMessageIndex] = useState(0);
+
+  useEffect(() => {
+    // Change line every 6 seconds → ~30 seconds total for 5 messages
+    const id = setInterval(() => {
+      setMessageIndex((prev) => (prev + 1) % MESSAGES.length);
+    }, 6000);
+
+    return () => clearInterval(id);
+  }, []);
+
   return (
     <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-sz-bg">
       <div className="relative">
@@ -20,11 +40,14 @@ export default function SplashLoader() {
         </div>
       </div>
 
+      {/* Main static heading */}
       <p className="mt-5 text-xs sm:text-sm text-slate-400 tracking-[0.18em] uppercase">
-        Waking up your ShareZone…
+        ShareZone
       </p>
+
+      {/* Rotating subtitles */}
       <p className="mt-1 text-[10px] text-slate-500">
-        (If this takes a bit, Render free tier is starting your server.)
+        {MESSAGES[messageIndex]}
       </p>
     </div>
   );
