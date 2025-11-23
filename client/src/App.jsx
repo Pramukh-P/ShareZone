@@ -5,7 +5,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Home from "./pages/Home";
 import ZonePage from "./pages/ZonePage";
 import About from "./pages/About";
-import Privacy from "./pages/Privacy";
+import PrivacyTerms from "./pages/PrivacyTerms";
 import SplashLoader from "./components/SplashLoader";
 
 export default function App() {
@@ -31,7 +31,7 @@ export default function App() {
         <Route path="/" element={<Home />} />
         <Route path="/zone/:zoneId" element={<ZonePage />} />
         <Route path="/about" element={<About />} />
-        <Route path="/privacy" element={<Privacy />} />
+        <Route path="/privacy" element={<PrivacyTerms />} />
       </Routes>
     </BrowserRouter>
   );
