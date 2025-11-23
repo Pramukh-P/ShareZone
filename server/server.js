@@ -5,8 +5,6 @@ import cookieParser from "cookie-parser";
 import dotenv from "dotenv";
 import http from "http";
 import { Server as SocketIOServer } from "socket.io";
-import path from "path";
-import { fileURLToPath } from "url";
 
 import { ChatMessage } from "./models/ChatMessage.js";
 import { Zone } from "./models/Zone.js";
@@ -18,18 +16,21 @@ dotenv.config();
 
 const app = express();
 
-// ---------- Path helpers (for serving frontend build) ----------
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
 // ---------- HTTP + Socket.io ----------
 const httpServer = http.createServer(app);
 
-// For simplicity, allow all origins for Socket.io (fine for this project)
-// If you want to tighten later, you can restrict to a specific origin.
+// ✅ Define allowed origins (for API + Socket.io)
+const allowedOrigins = [
+  "http://localhost:5173",
+  "http://127.0.0.1:5173",
+  process.env.FRONTEND_ORIGIN,      // you can set this to your Vercel URL later
+  "https://sharezone-rz39.onrender.com", // old combined origin (optional)
+].filter(Boolean);
+
+// ---------- Socket.io with CORS ----------
 const io = new SocketIOServer(httpServer, {
   cors: {
-    origin: "*",
+    origin: allowedOrigins,
     methods: ["GET", "POST", "PATCH", "DELETE"],
   },
 });
@@ -51,7 +52,7 @@ io.on("connection", (socket) => {
     socket.to(`zone:${zoneId}`).emit("user_left", { username });
   });
 
-  // 💬 Chat messages (we don't show chat UI now but logic is kept)
+  // 💬 Chat messages (logic kept even if UI not shown)
   socket.on("chat_message", async ({ zoneId, username, text }) => {
     try {
       if (!zoneId || !username || !text || !text.trim()) return;
@@ -86,32 +87,27 @@ io.on("connection", (socket) => {
 // ---------- Middlewares ----------
 app.use(
   cors({
-    origin: true, // reflect the request origin (allows localhost:5173 + Render domain)
-    credentials: true,
+    origin: allowedOrigins,
+    credentials: false, // no cookies/JWT being used here
   })
 );
 app.use(express.json());
 app.use(cookieParser());
 
-// If you ever want direct static access to uploads, you can uncomment this:
-// app.use("/uploads", express.static(path.join(__dirname, "uploads")));
-
 // ---------- API routes ----------
 app.use("/api/zones", zoneRoutes);
 
-// ---------- Serve frontend (Vite build) in production ----------
-const clientDistPath = path.join(__dirname, "..", "client", "dist");
+// ✅ Simple health/root route (optional but nice)
+app.get("/", (req, res) => {
+  res.json({
+    status: "ok",
+    message: "ShareZone backend is running",
+  });
+});
 
-app.use(express.static(clientDistPath));
-
-app.get("*", (req, res) => {
-  // If some unknown /api route falls through, return JSON 404
-  if (req.path.startsWith("/api")) {
-    return res.status(404).json({ message: "Not found" });
-  }
-
-  // Otherwise serve the React app
-  res.sendFile(path.join(clientDistPath, "index.html"));
+// ✅ Fallback 404 for unknown routes
+app.use((req, res) => {
+  return res.status(404).json({ message: "Not found" });
 });
 
 // ---------- Start server ----------
