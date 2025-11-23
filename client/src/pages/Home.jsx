@@ -61,6 +61,12 @@ function formatExpiry(exp) {
   }
 }
 
+// small helper: local expiry check fallback
+function isLocallyExpired(expiresAt, nowMs) {
+  const expMs = new Date(expiresAt).getTime();
+  return !isNaN(expMs) && expMs < nowMs;
+}
+
 export default function Home() {
   const [createForm, setCreateForm] = useState(initialCreateForm);
   const [joinForm, setJoinForm] = useState(initialJoinForm);
@@ -74,68 +80,74 @@ export default function Home() {
   const [info, setInfo] = useState("");
 
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();   // 👈 NEW
+  const [searchParams] = useSearchParams();
 
-
-  // Utility: split zones into [notExpired, expired]
-  function splitByExpiry(zones, nowMs) {
-    const notExpired = [];
-    const expired = [];
-    zones.forEach((z) => {
-      const expMs = new Date(z.expiresAt).getTime();
-      if (!isNaN(expMs) && expMs < nowMs) {
-        expired.push(z);
-      } else {
-        notExpired.push(z);
-      }
-    });
-    return [notExpired, expired];
-  }
-
-  // On mount: load zones from localStorage and clean obvious expired ones
+  // ---------- Initial load + sync with backend ----------
   useEffect(() => {
     const now = Date.now();
 
-    // Live zones
-    let storedLive = loadLiveZones();
-    const [stillLive, expiredLive] = splitByExpiry(storedLive, now);
-    if (expiredLive.length > 0) {
-      // Optional: try to delete expired zones from backend (owner only)
-      expiredLive.forEach((zone) => {
-        if (!zone.ownerToken) return;
-        axios
-          .delete(`${API_BASE}/api/zones/${zone.id}`, {
-            headers: { "x-owner-token": zone.ownerToken },
-          })
-          .catch(() => {
-            // ignore errors here; backend also has expiry cleanup
-          });
-      });
-      saveLiveZones(stillLive);
-    }
+    const syncZonesWithServer = async () => {
+      const storedLive = loadLiveZones();
+      const storedJoined = loadJoinedZones();
 
-    setLiveZones(stillLive);
+      // sync one zone entry with backend; fall back to local expiry if request fails
+      const syncOne = async (entry) => {
+        try {
+          const res = await axios.get(`${API_BASE}/api/zones/${entry.id}`);
+          const zone = res.data;
 
-    // Joined zones
-    let storedJoined = loadJoinedZones();
-    const [stillJoined] = splitByExpiry(storedJoined, now);
-    if (stillJoined.length !== storedJoined.length) {
-      saveJoinedZones(stillJoined);
-    }
-    setJoinedZones(stillJoined);
+          const expMs = new Date(zone.expiresAt).getTime();
+          const expiredOnServer =
+            isNaN(expMs) || expMs < now || zone.isDeleted;
 
-    // 👇 NEW: auto-fill Join form from shared link
-    const sharedZoneName = searchParams.get("zone");
-    if (sharedZoneName) {
-      setJoinForm((prev) => ({
-        ...prev,
-        zoneName: sharedZoneName,
-      }));
-      setInfo(
-        `Joining shared zone "${sharedZoneName}". Enter password and your username to continue.`
-      );
-    }
-  }, []);
+          if (expiredOnServer) {
+            // zone is actually expired / deleted, drop it
+            return null;
+          }
+
+          // keep entry, but refresh expiresAt from server
+          return {
+            ...entry,
+            expiresAt: zone.expiresAt,
+          };
+        } catch (err) {
+          // If server is unreachable or returns error, fall back to local expiry
+          if (isLocallyExpired(entry.expiresAt, now)) {
+            return null;
+          }
+          return entry;
+        }
+      };
+
+      const [liveResults, joinedResults] = await Promise.all([
+        Promise.all(storedLive.map((z) => syncOne(z))),
+        Promise.all(storedJoined.map((z) => syncOne(z))),
+      ]);
+
+      const finalLive = liveResults.filter(Boolean);
+      const finalJoined = joinedResults.filter(Boolean);
+
+      saveLiveZones(finalLive);
+      saveJoinedZones(finalJoined);
+      setLiveZones(finalLive);
+      setJoinedZones(finalJoined);
+
+      // Auto-fill Join form from shared link (if present)
+      const sharedZoneName = searchParams.get("zone");
+      if (sharedZoneName) {
+        setJoinForm((prev) => ({
+          ...prev,
+          zoneName: sharedZoneName,
+        }));
+        setInfo(
+          `Joining shared zone "${sharedZoneName}". Enter password and your username to continue.`
+        );
+      }
+    };
+
+    syncZonesWithServer();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
   const handleCreateChange = (e) => {
     const { name, value } = e.target;
