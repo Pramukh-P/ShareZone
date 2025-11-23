@@ -86,7 +86,8 @@ export default function ZonePage() {
   const ownerToken = fromState.ownerToken || null;
 
   const [zoneInfo, setZoneInfo] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(true);      // first load
+  const [refreshing, setRefreshing] = useState(false); // small loader for refresh after upload
   const [zoneError, setZoneError] = useState("");
 
   const [selectedFiles, setSelectedFiles] = useState([]);
@@ -137,9 +138,14 @@ export default function ZonePage() {
       navigator.userAgent
     );
 
-  const fetchZone = async () => {
+  // 🔄 Fetch zone info. `silent=true` => don't show big "Loading..." card, just use inline loader.
+  const fetchZone = async (silent = false) => {
     try {
-      setLoading(true);
+      if (silent) {
+        setRefreshing(true);
+      } else {
+        setLoading(true);
+      }
       const res = await axios.get(`${API_BASE}/api/zones/${zoneId}`, {
         params: { username },
       });
@@ -152,12 +158,16 @@ export default function ZonePage() {
           "Failed to load zone. It may have expired or been deleted."
       );
     } finally {
-      setLoading(false);
+      if (silent) {
+        setRefreshing(false);
+      } else {
+        setLoading(false);
+      }
     }
   };
 
   useEffect(() => {
-    fetchZone();
+    fetchZone(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [zoneId]);
 
@@ -317,7 +327,8 @@ export default function ZonePage() {
 
       setUploadInfo(res.data.message || "Files uploaded successfully.");
 
-      await fetchZone();
+      // 🔁 Refresh zone silently (no full-page loading flash)
+      await fetchZone(true);
 
       setSelectedFiles([]);
       setUploadMessage("");
@@ -623,7 +634,7 @@ export default function ZonePage() {
     }
 
     const mime = previewFile.mimeType || "";
-    const type = fileTypeLabel(mime);
+       const type = fileTypeLabel(mime);
 
     if (type === "image") {
       return (
@@ -1113,6 +1124,14 @@ export default function ZonePage() {
                     <h3 className="text-base sm:text-lg font-semibold">
                       Upload activity
                     </h3>
+
+                    {/* 🔄 Small inline loader while uploads list is refreshing */}
+                    {refreshing && (
+                      <div className="flex items-center gap-2 text-[11px] text-slate-400">
+                        <span className="h-3 w-3 rounded-full border-2 border-slate-600 border-t-sz-accent animate-spin" />
+                        <span>Updating…</span>
+                      </div>
+                    )}
                   </div>
 
                   {filteredBatches.length === 0 ? (

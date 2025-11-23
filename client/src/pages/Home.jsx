@@ -53,18 +53,21 @@ function saveJoinedZones(zones) {
   saveZones(JOINED_ZONES_KEY, zones);
 }
 
+// ✅ 12-hour format with am/pm (similar to ZonePage)
 function formatExpiry(exp) {
   try {
-    return new Date(exp).toLocaleString();
+    return new Date(exp).toLocaleString(undefined, {
+      year: "numeric",
+      month: "short",
+      day: "2-digit",
+      hour: "numeric",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: true,
+    });
   } catch {
     return exp;
   }
-}
-
-// small helper: local expiry check fallback
-function isLocallyExpired(expiresAt, nowMs) {
-  const expMs = new Date(expiresAt).getTime();
-  return !isNaN(expMs) && expMs < nowMs;
 }
 
 export default function Home() {
@@ -82,72 +85,62 @@ export default function Home() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
-  // ---------- Initial load + sync with backend ----------
+  // Utility: split zones into [notExpired, expired]
+  function splitByExpiry(zones, nowMs) {
+    const notExpired = [];
+    const expired = [];
+    zones.forEach((z) => {
+      const expMs = new Date(z.expiresAt).getTime();
+      if (!isNaN(expMs) && expMs < nowMs) {
+        expired.push(z);
+      } else {
+        notExpired.push(z);
+      }
+    });
+    return [notExpired, expired];
+  }
+
+  // On mount: load zones from localStorage and clean obvious expired ones
   useEffect(() => {
     const now = Date.now();
 
-    const syncZonesWithServer = async () => {
-      const storedLive = loadLiveZones();
-      const storedJoined = loadJoinedZones();
+    // Live zones
+    let storedLive = loadLiveZones();
+    const [stillLive, expiredLive] = splitByExpiry(storedLive, now);
+    if (expiredLive.length > 0) {
+      expiredLive.forEach((zone) => {
+        if (!zone.ownerToken) return;
+        axios
+          .delete(`${API_BASE}/api/zones/${zone.id}`, {
+            headers: { "x-owner-token": zone.ownerToken },
+          })
+          .catch(() => {});
+      });
+      saveLiveZones(stillLive);
+    }
 
-      // sync one zone entry with backend; fall back to local expiry if request fails
-      const syncOne = async (entry) => {
-        try {
-          const res = await axios.get(`${API_BASE}/api/zones/${entry.id}`);
-          const zone = res.data;
+    setLiveZones(stillLive);
 
-          const expMs = new Date(zone.expiresAt).getTime();
-          const expiredOnServer =
-            isNaN(expMs) || expMs < now || zone.isDeleted;
+    // Joined zones
+    let storedJoined = loadJoinedZones();
+    const [stillJoined] = splitByExpiry(storedJoined, now);
+    if (stillJoined.length !== storedJoined.length) {
+      saveJoinedZones(stillJoined);
+    }
+    setJoinedZones(stillJoined);
 
-          if (expiredOnServer) {
-            // zone is actually expired / deleted, drop it
-            return null;
-          }
-
-          // keep entry, but refresh expiresAt from server
-          return {
-            ...entry,
-            expiresAt: zone.expiresAt,
-          };
-        } catch (err) {
-          // If server is unreachable or returns error, fall back to local expiry
-          if (isLocallyExpired(entry.expiresAt, now)) {
-            return null;
-          }
-          return entry;
-        }
-      };
-
-      const [liveResults, joinedResults] = await Promise.all([
-        Promise.all(storedLive.map((z) => syncOne(z))),
-        Promise.all(storedJoined.map((z) => syncOne(z))),
-      ]);
-
-      const finalLive = liveResults.filter(Boolean);
-      const finalJoined = joinedResults.filter(Boolean);
-
-      saveLiveZones(finalLive);
-      saveJoinedZones(finalJoined);
-      setLiveZones(finalLive);
-      setJoinedZones(finalJoined);
-
-      // Auto-fill Join form from shared link (if present)
-      const sharedZoneName = searchParams.get("zone");
-      if (sharedZoneName) {
-        setJoinForm((prev) => ({
-          ...prev,
-          zoneName: sharedZoneName,
-        }));
-        setInfo(
-          `Joining shared zone "${sharedZoneName}". Enter password and your username to continue.`
-        );
-      }
-    };
-
-    syncZonesWithServer();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams]);
+    // Auto-fill Join form from shared link
+    const sharedZoneName = searchParams.get("zone");
+    if (sharedZoneName) {
+      setJoinForm((prev) => ({
+        ...prev,
+        zoneName: sharedZoneName,
+      }));
+      setInfo(
+        `Joining shared zone "${sharedZoneName}". Enter password and your username to continue.`
+      );
+    }
+  }, []);
 
   const handleCreateChange = (e) => {
     const { name, value } = e.target;
@@ -231,7 +224,6 @@ export default function Home() {
 
       const { zone } = res.data;
 
-      // Store in Joined Zones (this device only)
       const newJoinedEntry = {
         id: zone.id,
         zoneName: zone.zoneName,
@@ -240,7 +232,6 @@ export default function Home() {
       };
 
       const existingJoined = loadJoinedZones();
-      // avoid duplicates by id
       const withoutSame = existingJoined.filter((z) => z.id !== zone.id);
       const updatedJoined = [newJoinedEntry, ...withoutSame];
       setJoinedZones(updatedJoined);
@@ -313,7 +304,6 @@ export default function Home() {
   };
 
   const handleRemoveJoinedZone = (zone) => {
-    // Only remove from this device; does NOT delete from DB
     const updated = loadJoinedZones().filter((z) => z.id !== zone.id);
     setJoinedZones(updated);
     saveJoinedZones(updated);
@@ -338,7 +328,6 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Right side: About & Privacy buttons */}
           <div className="flex items-center gap-2 text-[11px] sm:text-xs">
             <button
               type="button"
@@ -361,7 +350,6 @@ export default function Home() {
       {/* Main content */}
       <main className="flex-1">
         <div className="max-w-6xl mx-auto px-4 py-6 sm:py-8 space-y-6">
-          {/* Global messages */}
           {(error || info) && (
             <div className="space-y-2">
               {error && (
@@ -377,9 +365,9 @@ export default function Home() {
             </div>
           )}
 
-          {/* Row 1: Create (left) / Join (right) */}
+          {/* Create / Join row */}
           <section className="grid gap-4 lg:grid-cols-2 items-start">
-            {/* Left: Create Zone */}
+            {/* Create Zone */}
             <div className="space-y-4">
               <div className="bg-slate-950/70 border border-sz-border rounded-2xl p-5 sm:p-6">
                 <div className="flex items-center justify-between mb-4">
@@ -467,7 +455,7 @@ export default function Home() {
               </div>
             </div>
 
-            {/* Right: Join Zone */}
+            {/* Join Zone */}
             <div className="bg-slate-950/70 border border-sz-border rounded-2xl p-5 sm:p-6">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-base sm:text-lg font-semibold">
@@ -536,9 +524,9 @@ export default function Home() {
             </div>
           </section>
 
-          {/* Row 2: Joined Zones (left) / Live Zones (right) */}
+          {/* Live / Joined zones */}
           <section className="grid gap-4 lg:grid-cols-2 items-start">
-            {/* Live Zones (created as owner) */}
+            {/* Live Zones */}
             <div className="bg-slate-950/70 border border-sz-border rounded-2xl p-5 sm:p-6">
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-base sm:text-lg font-semibold">
@@ -546,7 +534,6 @@ export default function Home() {
                 </h3>
               </div>
 
-              {/* Fixed-height scroll container */}
               <div className="mt-1 h-64 overflow-y-auto pr-1">
                 {liveZones.length === 0 ? (
                   <div className="h-full rounded-xl border border-dashed border-sz-border/80 bg-slate-950/80 px-4 py-6 text-center flex flex-col items-center justify-center">
@@ -610,7 +597,6 @@ export default function Home() {
                 </h3>
               </div>
 
-              {/* Fixed-height scroll container */}
               <div className="mt-1 h-64 overflow-y-auto pr-1">
                 {joinedZones.length === 0 ? (
                   <div className="h-full rounded-xl border border-dashed border-sz-border/80 bg-slate-950/80 px-4 py-6 text-center flex flex-col items-center justify-center">
@@ -713,7 +699,6 @@ export default function Home() {
   );
 }
 
-// Small presentational helpers for "How it works" section
 function Step({ title, text }) {
   return (
     <div className="flex-1 min-w-[150px]">
