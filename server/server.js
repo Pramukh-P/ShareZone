@@ -5,6 +5,8 @@ import cookieParser from "cookie-parser";
 import dotenv from "dotenv";
 import http from "http";
 import { Server as SocketIOServer } from "socket.io";
+import path from "path";
+import { fileURLToPath } from "url";
 
 import { ChatMessage } from "./models/ChatMessage.js";
 import { Zone } from "./models/Zone.js";
@@ -16,18 +18,23 @@ dotenv.config();
 
 const app = express();
 
-// ---------- HTTP + Socket.io ----------
-const httpServer = http.createServer(app);
+// ---------- Path helpers (you don't really need static now, but keeping helpers is fine) ----------
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
-// ✅ Define allowed origins (for API + Socket.io)
+// ---------- Allowed origins (CORS) ----------
 const allowedOrigins = [
   "http://localhost:5173",
   "http://127.0.0.1:5173",
-  process.env.FRONTEND_ORIGIN,      // you can set this to your Vercel URL later
-  "https://sharezone-rz39.onrender.com", // old combined origin (optional)
+  process.env.FRONTEND_ORIGIN,              // 👈 Vercel frontend (e.g. https://sharezone-web.vercel.app)
+  "https://sharezone-rz39.onrender.com",    // old same-origin frontend (optional)
 ].filter(Boolean);
 
-// ---------- Socket.io with CORS ----------
+console.log("CORS allowed origins:", allowedOrigins);
+
+// ---------- HTTP + Socket.io ----------
+const httpServer = http.createServer(app);
+
 const io = new SocketIOServer(httpServer, {
   cors: {
     origin: allowedOrigins,
@@ -52,7 +59,7 @@ io.on("connection", (socket) => {
     socket.to(`zone:${zoneId}`).emit("user_left", { username });
   });
 
-  // 💬 Chat messages (logic kept even if UI not shown)
+  // 💬 Chat messages (kept for future, no UI yet)
   socket.on("chat_message", async ({ zoneId, username, text }) => {
     try {
       if (!zoneId || !username || !text || !text.trim()) return;
@@ -87,27 +94,27 @@ io.on("connection", (socket) => {
 // ---------- Middlewares ----------
 app.use(
   cors({
-    origin: allowedOrigins,
-    credentials: false, // no cookies/JWT being used here
+    origin: allowedOrigins,   // 👈 IMPORTANT: only these origins are allowed
+    credentials: true,
   })
 );
+
+// (Optional but safe) handle preflight explicitly
+app.options("*", cors({ origin: allowedOrigins, credentials: true }));
+
 app.use(express.json());
 app.use(cookieParser());
 
 // ---------- API routes ----------
 app.use("/api/zones", zoneRoutes);
 
-// ✅ Simple health/root route (optional but nice)
-app.get("/", (req, res) => {
-  res.json({
-    status: "ok",
-    message: "ShareZone backend is running",
-  });
-});
+// 🔴 We NO LONGER serve the React build here, because frontend is on Vercel.
+// If you kept any `express.static(clientDistPath)` and wildcard `app.get("*")`,
+// you can safely delete them now. The backend is pure API + sockets.
 
-// ✅ Fallback 404 for unknown routes
-app.use((req, res) => {
-  return res.status(404).json({ message: "Not found" });
+// If you want a basic health check:
+app.get("/", (req, res) => {
+  res.json({ status: "ok", message: "ShareZone backend running" });
 });
 
 // ---------- Start server ----------
