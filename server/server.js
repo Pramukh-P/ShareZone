@@ -18,19 +18,25 @@ dotenv.config();
 
 const app = express();
 
-// ---------- Path helpers (you don't really need static now, but keeping helpers is fine) ----------
+// ---------- Path helpers (we no longer serve frontend here) ----------
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// ✅ Normalize FRONTEND_ORIGIN: remove any trailing slashes
+const rawFrontendOrigin = process.env.FRONTEND_ORIGIN;
+const FRONTEND_ORIGIN = rawFrontendOrigin
+  ? rawFrontendOrigin.replace(/\/+$/, "")
+  : undefined;
 
 // ---------- Allowed origins (CORS) ----------
 const allowedOrigins = [
   "http://localhost:5173",
   "http://127.0.0.1:5173",
-  process.env.FRONTEND_ORIGIN,              // 👈 Vercel frontend (e.g. https://sharezone-web.vercel.app)
-  "https://sharezone-rz39.onrender.com",    // old same-origin frontend (optional)
+  FRONTEND_ORIGIN,                       // e.g. https://sharezone-web.vercel.app
+  "https://sharezone-rz39.onrender.com", // backend origin (optional but fine)
 ].filter(Boolean);
 
-console.log("CORS allowed origins:", allowedOrigins);
+console.log("CORS allowed origins (normalized):", allowedOrigins);
 
 // ---------- HTTP + Socket.io ----------
 const httpServer = http.createServer(app);
@@ -59,7 +65,7 @@ io.on("connection", (socket) => {
     socket.to(`zone:${zoneId}`).emit("user_left", { username });
   });
 
-  // 💬 Chat messages (kept for future, no UI yet)
+  // 💬 Chat messages (kept for future UI)
   socket.on("chat_message", async ({ zoneId, username, text }) => {
     try {
       if (!zoneId || !username || !text || !text.trim()) return;
@@ -94,13 +100,19 @@ io.on("connection", (socket) => {
 // ---------- Middlewares ----------
 app.use(
   cors({
-    origin: allowedOrigins,   // 👈 IMPORTANT: only these origins are allowed
+    origin: allowedOrigins,
     credentials: true,
   })
 );
 
-// (Optional but safe) handle preflight explicitly
-app.options("*", cors({ origin: allowedOrigins, credentials: true }));
+// Explicitly handle preflight for all routes
+app.options(
+  "*",
+  cors({
+    origin: allowedOrigins,
+    credentials: true,
+  })
+);
 
 app.use(express.json());
 app.use(cookieParser());
@@ -108,11 +120,7 @@ app.use(cookieParser());
 // ---------- API routes ----------
 app.use("/api/zones", zoneRoutes);
 
-// 🔴 We NO LONGER serve the React build here, because frontend is on Vercel.
-// If you kept any `express.static(clientDistPath)` and wildcard `app.get("*")`,
-// you can safely delete them now. The backend is pure API + sockets.
-
-// If you want a basic health check:
+// 🔹 Backend is API-only now (frontend is on Vercel)
 app.get("/", (req, res) => {
   res.json({ status: "ok", message: "ShareZone backend running" });
 });
@@ -124,11 +132,11 @@ connectDB().then(() => {
   httpServer.listen(PORT, () => {
     console.log(`ShareZone server + Socket.io listening on port ${PORT}`);
 
-    // 🔁 Schedule expired-zone cleanup every 5 minutes
+    // 🔁 Cleanup expired zones every 5 minutes
     setInterval(() => {
       cleanupExpiredZones().catch((err) => {
         console.error("Error in cleanupExpiredZones:", err);
       });
-    }, 5 * 60 * 1000); // 5 minutes
+    }, 5 * 60 * 1000);
   });
 });
